@@ -16,7 +16,7 @@ If you find this code base useful, please cite our paper. Thanks!
 ```
 @article{Song Tang2024DSPNet,
   title={Few-Shot Medical Image Segmentation with Detail Self-Refined Prototypes},
-  author={Song Tang, Shaxu Yan, Xiaozhi Qi, Jianxin Gao, Mao Ye , Jianwei Zhang and Xiatian Zhu},
+  author={Song Tang, Shaxu Yan, Xiaozhi Qi, Jianxin Gao, Mao Ye, Jianwei Zhang and Xiatian Zhu},
   journal={},
   year={2024}
 }
@@ -42,6 +42,7 @@ torchvision==0.9.1
 ### 2. Data pre-processing 
 
 ### Datasets and pre-processing
+**NOTE:** The ipynb and sh files below, used for pre-processing, can be found at the link of SSL-ALPNet: https://github.com/cheng-01037/Self-supervised-Fewshot-Medical-Image-Segmentation 
 Download:  
 **Abdominal MRI**
 
