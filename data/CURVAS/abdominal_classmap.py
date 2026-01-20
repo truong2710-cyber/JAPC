@@ -85,12 +85,12 @@ def main():
         print(f"[OK] case {k} finished ({n_slice} slices)")
 
     # Save outputs
-    out_union = os.path.join(OUT_DIR, f"classmap_union_minTP{MIN_TP}.json")
+    out_union = os.path.join(OUT_DIR, f"classmap_{MIN_TP}.json")
     with open(out_union, "w") as f:
         json.dump(classmap_union, f)
 
     for r in RATERS:
-        out_r = os.path.join(OUT_DIR, f"classmap_rater{r}_minTP{MIN_TP}.json")
+        out_r = os.path.join(OUT_DIR, f"classmap_rater{r}_{MIN_TP}.json")
         with open(out_r, "w") as f:
             json.dump(classmap_per_rater[r], f)
 

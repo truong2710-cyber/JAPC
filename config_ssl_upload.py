@@ -35,7 +35,7 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'CHAOST2_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix
+    dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
@@ -52,7 +52,7 @@ def cfg():
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
     label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [2,3] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
 
@@ -115,6 +115,7 @@ def cfg():
         'SABS_Superpix':{'data_dir': "./data/SABS/sabs_CT_normalized"},
         'C0_Superpix':{'data_dir': "feed your dataset path here"},
         'CHAOST2_Superpix':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized/"},
+        'CURVAS_Superpix':{'data_dir': "./data/CURVAS/curvas_CT_normalized"},
         }
 
 
