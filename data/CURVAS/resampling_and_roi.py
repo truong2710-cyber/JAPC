@@ -1,8 +1,10 @@
 """
-Step 2 preprocessing (crop empty boundary + resample to 256x256 in-plane)
-for a MULTI-RATER dataset already normalized in ./tmp_normalized/.
+Step 2 preprocessing:
+- crop empty boundary in-plane (y/x) by BD_BIAS
+- ALSO remove all-background slices on top/bottom along z (based on labels > 0)
+- resample to 256x256 in-plane
 
-Input (from your step-1 output):
+Input:
   ./tmp_normalized/
     image_{k}.nii.gz
     label_{k}_1.nii.gz
@@ -36,12 +38,6 @@ TARGET_HW = 256       # target in-plane size after resampling
 # -------------------------
 # Helpers
 # -------------------------
-def copy_spacing_ori(src: sitk.Image, dst: sitk.Image) -> sitk.Image:
-    dst.SetSpacing(src.GetSpacing())
-    dst.SetOrigin(src.GetOrigin())
-    dst.SetDirection(src.GetDirection())
-    return dst
-
 def resample_by_res(mov_img_obj: sitk.Image,
                     new_spacing,
                     interpolator=sitk.sitkLinear,
@@ -68,6 +64,7 @@ def resample_by_res(mov_img_obj: sitk.Image,
 
     return resample.Execute(mov_img_obj)
 
+
 def resample_lb_by_res(mov_lb_obj: sitk.Image,
                        new_spacing,
                        interpolator=sitk.sitkLinear,
@@ -86,7 +83,7 @@ def resample_lb_by_res(mov_lb_obj: sitk.Image,
     out_vol = None
     _tar_curr_obj = None
 
-    for idx, lbv in enumerate(lbvs):
+    for lbv in lbvs:
         curr_bin = (src_mat == lbv).astype(np.float32)
         curr_obj = sitk.GetImageFromArray(curr_bin)
         curr_obj.CopyInformation(mov_lb_obj)
@@ -106,23 +103,51 @@ def resample_lb_by_res(mov_lb_obj: sitk.Image,
     if ref_img is not None:
         out_obj.CopyInformation(ref_img)
     else:
-        # fall back to the last resampled binary object's spacing/origin/direction
-        out_obj.SetSpacing(_tar_curr_obj.GetSpacing())
-        out_obj.SetOrigin(_tar_curr_obj.GetOrigin())
-        out_obj.SetDirection(_tar_curr_obj.GetDirection())
+        out_obj.CopyInformation(_tar_curr_obj)
 
     return out_obj
 
-def crop_axial_border(arr_zyx: np.ndarray, bd: int) -> np.ndarray:
-    """
-    arr is (z, y, x). Crop y and x borders by bd pixels.
-    """
-    if bd <= 0:
-        return arr_zyx
-    if arr_zyx.shape[1] <= 2*bd or arr_zyx.shape[2] <= 2*bd:
-        raise ValueError(f"BD_BIAS={bd} too large for in-plane shape {arr_zyx.shape[1:]}")
 
-    return arr_zyx[:, bd:-bd, bd:-bd]
+def find_nonempty_z_bounds_from_labels(label_arrays_zyx, foreground_fn=None):
+    """
+    label_arrays_zyx: list of np arrays (z,y,x)
+    foreground_fn: optional function(arr)->bool mask; default: arr>0
+
+    Returns (z0, z1) inclusive bounds of slices that contain any foreground
+    across ALL provided labels. If no foreground found, returns (0, Z-1).
+    """
+    if foreground_fn is None:
+        foreground_fn = lambda a: a > 0
+
+    if not label_arrays_zyx:
+        raise ValueError("label_arrays_zyx is empty; cannot determine z-bounds.")
+
+    Z = label_arrays_zyx[0].shape[0]
+    any_fg = np.zeros((Z,), dtype=bool)
+
+    for arr in label_arrays_zyx:
+        if arr.shape[0] != Z:
+            raise ValueError("All label arrays must have the same z dimension.")
+        fg = foreground_fn(arr)
+        any_fg |= fg.reshape(Z, -1).any(axis=1)
+
+    if not any_fg.any():
+        # no foreground at all -> keep full z
+        return 0, Z - 1
+
+    z0 = int(np.argmax(any_fg))
+    z1 = int(Z - 1 - np.argmax(any_fg[::-1]))
+    return z0, z1
+
+
+def crop_roi_xyz(img: sitk.Image, x0, y0, z0, sx, sy, sz) -> sitk.Image:
+    """
+    Crop using SITK ROI so origin/direction are handled correctly.
+    index/size are in (x,y,z).
+    """
+    size = [int(sx), int(sy), int(sz)]
+    index = [int(x0), int(y0), int(z0)]
+    return sitk.RegionOfInterest(img, size=size, index=index)
 
 
 # -------------------------
@@ -136,11 +161,9 @@ def main():
         raise RuntimeError(f"No images found in {IN_FOLDER} with pattern image_*.nii.gz")
 
     for img_path in img_paths:
-        # parse index k from "image_{k}.nii.gz"
         base = os.path.basename(img_path)
         k = base.replace("image_", "").replace(".nii.gz", "")
 
-        # check labels exist (at least one)
         label_paths = {r: os.path.join(IN_FOLDER, f"label_{k}_{r}.nii.gz") for r in RATERS}
         existing_raters = [r for r, p in label_paths.items() if os.path.exists(p)]
         if not existing_raters:
@@ -149,24 +172,45 @@ def main():
 
         print(f"\nProcessing case k={k} | image={img_path}")
 
+        # Read image and all existing labels first (we need labels to crop z)
         img_obj = sitk.ReadImage(img_path)
+        seg_objs = {r: sitk.ReadImage(label_paths[r]) for r in existing_raters}
 
-        # --- Crop image in array space (z,y,x), then restore geometry from original
-        img_arr = sitk.GetArrayFromImage(img_obj)
-        img_arr_crop = crop_axial_border(img_arr, BD_BIAS)
+        # Determine z-crop bounds from union of labels (foreground = label > 0)
+        label_arrays = [sitk.GetArrayFromImage(seg_objs[r]) for r in existing_raters]  # (z,y,x)
+        z0, z1 = find_nonempty_z_bounds_from_labels(label_arrays)
+        print(f"  Z-crop (label foreground): z={z0}..{z1} (inclusive)")
 
-        cropped_img_obj = sitk.GetImageFromArray(img_arr_crop)
-        cropped_img_obj = copy_spacing_ori(img_obj, cropped_img_obj)
+        # Now compute full ROI crop indices/sizes in (x,y,z)
+        x_size, y_size, z_size = img_obj.GetSize()  # SITK: (x,y,z)
+
+        # In-plane crop by BD_BIAS + z crop by (z0,z1)
+        x0 = BD_BIAS
+        y0 = BD_BIAS
+        z0_idx = z0
+
+        new_x = x_size - 2 * BD_BIAS
+        new_y = y_size - 2 * BD_BIAS
+        new_z = (z1 - z0 + 1)
+
+        if new_x <= 0 or new_y <= 0:
+            raise ValueError(f"BD_BIAS={BD_BIAS} too large for in-plane size {(x_size, y_size)}")
+        if new_z <= 0:
+            raise ValueError(f"Computed invalid z crop: z0={z0}, z1={z1}")
+
+        # Crop image and labels using ROI (preserves correct physical geometry)
+        cropped_img_obj = crop_roi_xyz(img_obj, x0, y0, z0_idx, new_x, new_y, new_z)
+
+        cropped_seg_objs = {}
+        for r in existing_raters:
+            # (Assumes label geometry matches the image; common in preprocessed datasets)
+            cropped_seg_objs[r] = crop_roi_xyz(seg_objs[r], x0, y0, z0_idx, new_x, new_y, new_z)
 
         # Compute spacing factor to reach TARGET_HW given cropped size
-        # We assume square in-plane after crop: y==x in numpy; in sitk size is (x,y,z)
+        # Note: GetSize returns (x,y,z)
         cropped_x, cropped_y, _ = cropped_img_obj.GetSize()
-        if cropped_x != cropped_y:
-            # still handle it by using per-dimension factors
-            fac_x = cropped_x / float(TARGET_HW)
-            fac_y = cropped_y / float(TARGET_HW)
-        else:
-            fac_x = fac_y = cropped_x / float(TARGET_HW)
+        fac_x = cropped_x / float(TARGET_HW)
+        fac_y = cropped_y / float(TARGET_HW)
 
         sx, sy, sz = img_obj.GetSpacing()
         new_spacing_img = [sx * fac_x, sy * fac_y, sz]
@@ -179,28 +223,19 @@ def main():
             logging=True
         )
 
-        # Save resampled image
         out_img_path = os.path.join(OUT_FOLDER, f"image_{k}.nii.gz")
         sitk.WriteImage(res_img_obj, out_img_path, True)
         print(f"[OK] Saved {out_img_path}")
 
-        # --- Process each rater label
+        # Process each rater label
         for r in existing_raters:
-            seg_obj = sitk.ReadImage(label_paths[r])
-
-            # Crop label in array space (z,y,x)
-            lb_arr = sitk.GetArrayFromImage(seg_obj)
-            lb_arr_crop = crop_axial_border(lb_arr, BD_BIAS)
-
-            cropped_lb_obj = sitk.GetImageFromArray(lb_arr_crop)
-            cropped_lb_obj = copy_spacing_ori(seg_obj, cropped_lb_obj)
+            seg_obj = cropped_seg_objs[r]
 
             lsx, lsy, lsz = seg_obj.GetSpacing()
             new_spacing_lb = [lsx * fac_x, lsy * fac_y, lsz]
 
-            # Resample label (label-safe), match geometry to resampled image
             res_lb_obj = resample_lb_by_res(
-                cropped_lb_obj,
+                seg_obj,
                 new_spacing_lb,
                 interpolator=sitk.sitkLinear,
                 ref_img=res_img_obj,
