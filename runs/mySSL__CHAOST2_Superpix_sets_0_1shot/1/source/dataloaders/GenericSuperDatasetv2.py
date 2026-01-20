@@ -255,7 +255,7 @@ class SuperpixelDataset(BaseDataset):
 
         for _ex_cls in self.exclude_lbs:
             if curr_dict["z_id"] in self.tp1_cls_map[self.real_label_name[_ex_cls]][curr_dict["scan_id"]]: # if using setting 1, this slice need to be excluded since it contains label which is supposed to be unseen
-                return self.__getitem__(torch.randint(low = 0, high = self.__len__(), size = (1,)))
+                return self.__getitem__(torch.randint(low = 0, high = self.__len__() - 1, size = (1,)))
 
         label_t = self.supcls_pick_binarize(label_raw, sup_max_cls)
 
