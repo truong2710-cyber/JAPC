@@ -39,7 +39,7 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 50000 # 100100
+    n_steps = 100000 # 100100
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
@@ -66,7 +66,7 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/3/snapshots/50000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/10/snapshots/100000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
 
