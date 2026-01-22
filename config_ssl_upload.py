@@ -39,7 +39,7 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 100000 # 100100
+    n_steps = 50000 # 100100
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
@@ -51,8 +51,8 @@ def cfg():
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
-    label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    label_sets = 1 # which group of labels taking as training (the rest are for testing)
+    exclude_cls_list = [1, 3] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
 
