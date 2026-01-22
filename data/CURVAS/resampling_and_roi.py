@@ -1,8 +1,9 @@
 """
 Step 2 preprocessing:
 - crop empty boundary in-plane (y/x) by BD_BIAS
-- ALSO remove all-background slices on top/bottom along z (based on labels > 0)
-- resample to 256x256 in-plane
+- remove all-background slices on top/bottom along z (based on labels > 0)
+- resample to TARGET_HW x TARGET_HW in-plane
+- ALSO resample z-spacing to TARGET_Z_SPACING (e.g., 3.0mm)
 
 Input:
   ./tmp_normalized/
@@ -31,9 +32,9 @@ IN_FOLDER = "./tmp_normalized"
 OUT_FOLDER = "./curvas_CT_normalized"
 
 RATERS = [1, 2, 3]
-BD_BIAS = 32          # crop border in axial plane (y/x dims)
+BD_BIAS = 32          # crop border in axial plane (x/y dims)
 TARGET_HW = 256       # target in-plane size after resampling
-
+TARGET_Z_SPACING = 3.0  # <-- NEW: desired z spacing (mm)
 
 # -------------------------
 # Helpers
@@ -56,7 +57,7 @@ def resample_by_res(mov_img_obj: sitk.Image,
     res_coe = np.array(mov_spacing, dtype=np.float64) / np.array(new_spacing, dtype=np.float64)
     new_size = mov_size * res_coe
 
-    resample.SetSize([int(sz + 1) for sz in new_size])
+    resample.SetSize([max(1, int(sz + 1)) for sz in new_size])
 
     if logging:
         print(f"  Spacing: {mov_spacing} -> {tuple(new_spacing)}")
@@ -111,7 +112,6 @@ def resample_lb_by_res(mov_lb_obj: sitk.Image,
 def find_nonempty_z_bounds_from_labels(label_arrays_zyx, foreground_fn=None):
     """
     label_arrays_zyx: list of np arrays (z,y,x)
-    foreground_fn: optional function(arr)->bool mask; default: arr>0
 
     Returns (z0, z1) inclusive bounds of slices that contain any foreground
     across ALL provided labels. If no foreground found, returns (0, Z-1).
@@ -132,7 +132,6 @@ def find_nonempty_z_bounds_from_labels(label_arrays_zyx, foreground_fn=None):
         any_fg |= fg.reshape(Z, -1).any(axis=1)
 
     if not any_fg.any():
-        # no foreground at all -> keep full z
         return 0, Z - 1
 
     z0 = int(np.argmax(any_fg))
@@ -148,7 +147,6 @@ def crop_roi_xyz(img: sitk.Image, x0, y0, z0, sx, sy, sz) -> sitk.Image:
     size = [int(sx), int(sy), int(sz)]
     index = [int(x0), int(y0), int(z0)]
     return sitk.RegionOfInterest(img, size=size, index=index)
-
 
 # -------------------------
 # Main
@@ -172,7 +170,7 @@ def main():
 
         print(f"\nProcessing case k={k} | image={img_path}")
 
-        # Read image and all existing labels first (we need labels to crop z)
+        # Read image and labels (need labels for z-crop)
         img_obj = sitk.ReadImage(img_path)
         seg_objs = {r: sitk.ReadImage(label_paths[r]) for r in existing_raters}
 
@@ -181,10 +179,9 @@ def main():
         z0, z1 = find_nonempty_z_bounds_from_labels(label_arrays)
         print(f"  Z-crop (label foreground): z={z0}..{z1} (inclusive)")
 
-        # Now compute full ROI crop indices/sizes in (x,y,z)
+        # Compute full ROI crop indices/sizes in (x,y,z)
         x_size, y_size, z_size = img_obj.GetSize()  # SITK: (x,y,z)
 
-        # In-plane crop by BD_BIAS + z crop by (z0,z1)
         x0 = BD_BIAS
         y0 = BD_BIAS
         z0_idx = z0
@@ -198,22 +195,23 @@ def main():
         if new_z <= 0:
             raise ValueError(f"Computed invalid z crop: z0={z0}, z1={z1}")
 
-        # Crop image and labels using ROI (preserves correct physical geometry)
+        # Crop image and labels using ROI
         cropped_img_obj = crop_roi_xyz(img_obj, x0, y0, z0_idx, new_x, new_y, new_z)
+        cropped_seg_objs = {r: crop_roi_xyz(seg_objs[r], x0, y0, z0_idx, new_x, new_y, new_z)
+                            for r in existing_raters}
 
-        cropped_seg_objs = {}
-        for r in existing_raters:
-            # (Assumes label geometry matches the image; common in preprocessed datasets)
-            cropped_seg_objs[r] = crop_roi_xyz(seg_objs[r], x0, y0, z0_idx, new_x, new_y, new_z)
-
-        # Compute spacing factor to reach TARGET_HW given cropped size
-        # Note: GetSize returns (x,y,z)
-        cropped_x, cropped_y, _ = cropped_img_obj.GetSize()
+        # Compute in-plane spacing factor to reach TARGET_HW
+        cropped_x, cropped_y, cropped_z = cropped_img_obj.GetSize()
         fac_x = cropped_x / float(TARGET_HW)
         fac_y = cropped_y / float(TARGET_HW)
 
-        sx, sy, sz = img_obj.GetSpacing()
-        new_spacing_img = [sx * fac_x, sy * fac_y, sz]
+        # ORIGINAL spacing of the CROPPED image (same as img_obj in practice)
+        sx, sy, sz = cropped_img_obj.GetSpacing()
+
+        # -------------------------
+        # NEW: also resample Z to TARGET_Z_SPACING
+        # -------------------------
+        new_spacing_img = [sx * fac_x, sy * fac_y, float(TARGET_Z_SPACING)]
 
         # Resample image (linear)
         res_img_obj = resample_by_res(
@@ -227,18 +225,16 @@ def main():
         sitk.WriteImage(res_img_obj, out_img_path, True)
         print(f"[OK] Saved {out_img_path}")
 
-        # Process each rater label
+        # Resample each rater label to the SAME spacing/geometry
         for r in existing_raters:
             seg_obj = cropped_seg_objs[r]
 
-            lsx, lsy, lsz = seg_obj.GetSpacing()
-            new_spacing_lb = [lsx * fac_x, lsy * fac_y, lsz]
-
+            # For labels, use the same target spacing as image (including z)
             res_lb_obj = resample_lb_by_res(
                 seg_obj,
-                new_spacing_lb,
+                new_spacing_img,  # <-- same [sx*fac_x, sy*fac_y, 3.0]
                 interpolator=sitk.sitkLinear,
-                ref_img=res_img_obj,
+                ref_img=res_img_obj,  # ensures identical size/origin/direction
                 logging=True
             )
 

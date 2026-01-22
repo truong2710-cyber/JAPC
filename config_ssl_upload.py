@@ -66,7 +66,7 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/10/snapshots/100000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/50000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
 
