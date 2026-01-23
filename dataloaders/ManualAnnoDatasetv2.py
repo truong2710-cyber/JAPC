@@ -121,7 +121,7 @@ class ManualAnnoDataset(BaseDataset):
             curr_dict = {}
 
             _img_fid = os.path.join(self.base_dir, f'image_{curr_id}.nii.gz')
-            _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}_1.nii.gz')
+            _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}.nii.gz')
 
             curr_dict["img_fid"] = _img_fid
             curr_dict["lbs_fid"] = _lb_fid

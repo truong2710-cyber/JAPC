@@ -20,7 +20,7 @@ from pdb import set_trace
 from util.utils import CircularList
 
 class SuperpixelDataset(BaseDataset):
-    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], superpix_scale = 'SMALL', **kwargs):
+    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', **kwargs):
         """
         Pseudolabel dataset
         Args:
@@ -52,6 +52,7 @@ class SuperpixelDataset(BaseDataset):
         self.nclass = len(self.pseu_label_name)
         self.num_rep = num_rep
         self.tile_z_dim = tile_z_dim
+        self.test_lbs = test_lbs
 
         # find scans in the data folder
         self.nsup = nsup
@@ -62,6 +63,11 @@ class SuperpixelDataset(BaseDataset):
         # experiment configs
         self.exclude_lbs = exclude_list
         self.superpix_scale = superpix_scale
+        if self.superpix_scale is not None and self.superpix_scale != '':
+            self.use_gt = False
+        else:
+            self.use_gt = True
+
         if len(exclude_list) > 0:
             print(f'###### Dataset: the following classes has been excluded {exclude_list}######')
         self.idx_split = idx_split
@@ -129,8 +135,10 @@ class SuperpixelDataset(BaseDataset):
             curr_dict = {}
 
             _img_fid = os.path.join(self.base_dir, f'image_{curr_id}.nii.gz')
-            # _lb_fid  = os.path.join(self.base_dir, f'superpix-{self.superpix_scale}_{curr_id}.nii.gz')
-            _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}_1.nii.gz')
+            if self.use_gt == False:
+                _lb_fid  = os.path.join(self.base_dir, f'superpix-{self.superpix_scale}_{curr_id}.nii.gz')
+            else:
+                _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}.nii.gz')
 
             curr_dict["img_fid"] = _img_fid
             curr_dict["lbs_fid"] = _lb_fid
@@ -228,17 +236,24 @@ class SuperpixelDataset(BaseDataset):
 
         return cls_map
 
-    def supcls_pick_binarize(self, super_map, sup_max_cls, bi_val = None):
+    def supcls_pick_binarize(self, super_map, sup_max_cls, exclude = [], bi_val = None):
         """
         pick up a certain super-pixel class or multiple classes, and binarize it into segmentation target
         Args:
             super_map:      super-pixel map
             bi_val:         if given, pick up a certain superpixel. Otherwise, draw a random one
+            exclude:        list of test classes to be excluded
             sup_max_cls:    max index of superpixel for avoiding overshooting when selecting superpixel
 
         """
+        if self.use_gt == False:
+            exclude = [] # do not exclude any class when using superpixel pseudolabels
         if bi_val == None:
-            bi_val = int(torch.randint(low = 1, high = int(sup_max_cls) + 1, size = (1,)))
+            # select bi_val in [1, sup_max_cls], excluding those in exclude list
+            candidate_cls = [ii for ii in range(1, int(sup_max_cls) + 1) if ii not in exclude]
+            if len(candidate_cls) == 0:
+                return np.float32(super_map == 0) # all background
+            bi_val = random.choice(candidate_cls)
 
         return np.float32(super_map == bi_val)
 
@@ -257,7 +272,7 @@ class SuperpixelDataset(BaseDataset):
             if curr_dict["z_id"] in self.tp1_cls_map[self.real_label_name[_ex_cls]][curr_dict["scan_id"]]: # if using setting 1, this slice need to be excluded since it contains label which is supposed to be unseen
                 return self.__getitem__(torch.randint(low = 0, high = self.__len__(), size = (1,)))
 
-        label_t = self.supcls_pick_binarize(label_raw, sup_max_cls)
+        label_t = self.supcls_pick_binarize(label_raw, sup_max_cls, exclude=self.test_lbs)
 
         pair_buffer = []
 

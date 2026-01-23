@@ -94,6 +94,7 @@ def main(_run, _config, _log):
             scan_per_load = _config['scan_per_load'],
             exclude_list = _config["exclude_cls_list"],
             superpix_scale = _config["superpix_scale"],
+            test_lbs = test_labels,
             fix_length = _config["max_iters_per_load"] if (data_name == 'C0_Superpix') or (data_name == 'CHAOST2_Superpix') else None
         )
         norm_func = tr_parent.norm_func
