@@ -138,7 +138,7 @@ class SuperpixelDataset(BaseDataset):
             if self.use_gt == False:
                 _lb_fid  = os.path.join(self.base_dir, f'superpix-{self.superpix_scale}_{curr_id}.nii.gz')
             else:
-                _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}.nii.gz')
+                _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}_1.nii.gz')
 
             curr_dict["img_fid"] = _img_fid
             curr_dict["lbs_fid"] = _lb_fid

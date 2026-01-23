@@ -35,7 +35,7 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'SABS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix
+    dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
@@ -52,7 +52,7 @@ def cfg():
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
     label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [2, 3] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    exclude_cls_list = [] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
 
@@ -66,7 +66,7 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = './runs/mySSL__SABS_Superpix_sets_0_1shot/1/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/21/snapshots/50000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
 
