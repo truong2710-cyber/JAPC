@@ -132,6 +132,7 @@ def main(_run, _config, _log):
             # Prepare input
             i_iter += 1 
             # add writers
+            breakpoint()
             support_images = [[shot.cuda() for shot in way]
                               for way in sample_batched['support_images']]
 
