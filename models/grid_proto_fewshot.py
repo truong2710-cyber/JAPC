@@ -81,10 +81,10 @@ class FewShotSeg(nn.Module):
         """
         mol = 'Loss'
         # ('Please go through this piece of code carefully')
-        n_ways = len(supp_imgs)
+        n_ways = len(supp_imgs) 
         n_shots = len(supp_imgs[0])
         n_queries = len(qry_imgs) 
-
+        breakpoint()
         # print("aa", n_ways, "bb", n_shots, "cc", n_queries)
 
         assert n_ways == 1, "Multi-shot has not been implemented yet" # NOTE: actual shot in support goes in batch dimension

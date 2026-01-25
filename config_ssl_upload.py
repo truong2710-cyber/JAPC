@@ -39,20 +39,20 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 50000 # 100100
+    n_steps = 20000 # 100100
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
     ignore_label = 255
     print_interval = 100
-    save_snapshot_every = 25000  # 25000
+    save_snapshot_every = 10000  # 25000
     max_iters_per_load = 1000 # epoch size, interval for reloading the dataset
     scan_per_load = -1 # numbers of 3d scans per load for saving memory. If -1, load the entire dataset to the memory
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
     label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
 
@@ -66,7 +66,7 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/21/snapshots/50000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = '/mnt/sheruifeng/baonn/DSPNet/runs/mySSL__CURVAS_Superpix_sets_0_1shot/23/snapshots/10000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
 
@@ -85,7 +85,7 @@ def cfg():
 
     task = {
         'n_ways': 1,
-        'n_shots': 1,
+        'n_shots': 3,
         'n_queries': 1,
         'npart': n_sup_part 
     }
