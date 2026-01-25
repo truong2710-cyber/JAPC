@@ -35,6 +35,7 @@ class SuperpixelDataset(BaseDataset):
             tile_z_dim:         number of identical slices to tile along channel dimension, for fitting 2D single-channel medical images into off-the-shelf networks designed for RGB natural images
             fix_length:         fix the length of dataset
             exclude_list:       Labels to be excluded
+            test_lbs:           labels to be treated as unseen classes during training
             superpix_scale:     config of superpixels
         """
 
