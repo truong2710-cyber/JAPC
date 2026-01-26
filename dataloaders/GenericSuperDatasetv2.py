@@ -14,10 +14,12 @@ import copy
 import platform
 import json
 import re
+import cv2
 from dataloaders.common import BaseDataset, Subset
 from dataloaders.dataset_utils import*
 from pdb import set_trace
 from util.utils import CircularList
+from scipy import ndimage
 
 class SuperpixelDataset(BaseDataset):
     def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', **kwargs):
@@ -97,6 +99,112 @@ class SuperpixelDataset(BaseDataset):
         print("###### Initial scans loaded: ######")
         print(self.pid_curr_load)
 
+    def generate_rater_styles(self, n_raters=3):
+        """
+        Generate N random morphological operation styles for rater variation.
+        Each style is consistent and can be applied to different masks.
+        
+        Args:
+            n_raters: number of different styles to generate
+            
+        Returns:
+            List of style specifications, e.g., [('erosion', 1), ('dilation', 1), ('fill_holes', 0)]
+        """
+        # Use only safe operations that won't completely destroy masks
+        operations = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes']
+        styles = []
+        
+        for _ in range(n_raters):
+            op = random.choice(operations)
+            
+            if op in ['erosion', 'dilation', 'opening', 'closing']:
+                # Always use kernel size 1 (3x3 kernel) to avoid destroying masks
+                styles.append((op, 1))
+            elif op == 'fill_holes':
+                # Simple hole filling
+                styles.append((op, 0))
+        
+        return styles
+    
+    def apply_rater_style(self, mask, style):
+        """
+        Apply a morphological operation style to a mask.
+        
+        Args:
+            mask: Binary mask (H x W or H x W x 1)
+            style: Tuple of (operation_name, parameter)
+            
+        Returns:
+            Modified mask with same shape as input
+        """
+        # Ensure mask is 2D for processing
+        if mask.ndim == 3:
+            mask_2d = mask[..., 0]
+            squeeze_output = True
+        else:
+            mask_2d = mask
+            squeeze_output = False
+        
+        # Convert to uint8 for OpenCV operations
+        mask_uint8 = (mask_2d * 255).astype(np.uint8)
+        
+        # If mask is empty, return as-is
+        if mask_uint8.max() == 0:
+            result = mask_uint8.astype(np.float32) / 255.0
+            if squeeze_output:
+                result = result[..., np.newaxis]
+            return result
+        
+        op_name, param = style
+        
+        # Use smaller kernels to avoid eroding masks completely
+        if op_name == 'erosion':
+            # Only erode by 1 pixel to keep most of the mask
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            result = cv2.erode(mask_uint8, kernel, iterations=1)
+        elif op_name == 'dilation':
+            # Dilate by small amount
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            result = cv2.dilate(mask_uint8, kernel, iterations=1)
+        elif op_name == 'opening':
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            result = cv2.morphologyEx(mask_uint8, cv2.MORPH_OPEN, kernel)
+        elif op_name == 'closing':
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            result = cv2.morphologyEx(mask_uint8, cv2.MORPH_CLOSE, kernel)
+        elif op_name == 'boundary_shift':
+            # Small erosion and dilation
+            kernel_e = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            kernel_d = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            eroded = cv2.erode(mask_uint8, kernel_e, iterations=1)
+            result = cv2.dilate(eroded, kernel_d, iterations=1)
+        elif op_name == 'component_prune':
+            # Only remove very small components
+            labeled_array, num_features = ndimage.label(mask_uint8 > 127)
+            result = np.zeros_like(mask_uint8)
+            for label_id in range(1, num_features + 1):
+                component = labeled_array == label_id
+                if np.sum(component) >= min(param, 5):  # Cap at 5 pixels minimum
+                    result[component] = 255
+        elif op_name == 'fill_holes':
+            # Fill small holes
+            result = ndimage.binary_fill_holes(mask_uint8 > 127).astype(np.uint8) * 255
+        else:
+            result = mask_uint8
+        
+        # If result is empty, use original mask
+        if result.max() == 0:
+            result = mask_uint8
+        
+        # Convert back to float [0, 1]
+        result = result.astype(np.float32) / 255.0
+        
+        # Restore original shape if needed
+        if squeeze_output:
+            result = result[..., np.newaxis]
+        
+        return result
+
     def get_scanids(self, mode, idx_split):
         """
         Load scans by train-test split
@@ -139,7 +247,9 @@ class SuperpixelDataset(BaseDataset):
 
             _img_fid = os.path.join(self.base_dir, f'image_{curr_id}.nii.gz')
             if self.use_gt == False:
+                # For superpixel, use rater IDs (will generate styles on-the-fly in __getitem__)
                 _lb_fids_dict = {0: os.path.join(self.base_dir, f'superpix-{self.superpix_scale}_{curr_id}.nii.gz')}
+                self.all_rater_ids.add(0)
             else:
                 # Find all available label files for this scan (label_{curr_id}_{rater_id}.nii.gz)
                 label_pattern = os.path.join(self.base_dir, f'label_{curr_id}_*.nii.gz')
@@ -294,18 +404,63 @@ class SuperpixelDataset(BaseDataset):
         sup_max_cls = curr_dict['sup_max_cls']
         if sup_max_cls < 1:
             return self.__getitem__(index + 1)
+        
+        for _ex_cls in self.exclude_lbs:
+            if curr_dict["z_id"] in self.tp1_cls_map[self.real_label_name[_ex_cls]][curr_dict["scan_id"]]: # if using setting 1, this slice need to be excluded since it contains label which is supposed to be unseen
+                return self.__getitem__(torch.randint(low = 0, high = self.__len__(), size = (1,)))
 
         image_t = curr_dict["img"]
         labels_raw = curr_dict["lbs"]  # Dict mapping rater_id -> label
         available_rater_ids = curr_dict["available_rater_ids"]
 
-        for _ex_cls in self.exclude_lbs:
-            if curr_dict["z_id"] in self.tp1_cls_map[self.real_label_name[_ex_cls]][curr_dict["scan_id"]]: # if using setting 1, this slice need to be excluded since it contains label which is supposed to be unseen
-                return self.__getitem__(torch.randint(low = 0, high = self.__len__(), size = (1,)))
-
-        # Binarize all labels
+        # Binarize all labels FIRST
         labels_t = {rater_id: self.supcls_pick_binarize(label_raw, sup_max_cls, exclude=self.test_lbs) 
                     for rater_id, label_raw in labels_raw.items()}
+        
+        # Debug: Check if raw labels are all zeros
+        if self.use_gt == False and 0 in labels_t:
+            max_label = labels_t[0].max().item() if hasattr(labels_t[0], 'max') else labels_t[0].max()
+            # print(f"[DEBUG] Binarized label (rater 0) max value: {max_label}, shape: {labels_t[0].shape}")
+
+        # Generate rater styles on-the-fly AFTER binarization for superpixel data
+        if self.use_gt == False:
+            # Generate N rater styles
+            rater_styles = self.generate_rater_styles(n_raters=3)
+            
+            # Apply styles to generate multiple rater versions from the binarized mask
+            labels_t_augmented = {}
+            if 0 in labels_t:  # Original binarized mask is stored with rater_id=0
+                labels_t_augmented[0] = labels_t[0]  # Keep original as rater 0
+                
+                for rater_id, style in enumerate(rater_styles[1:], 1):  # Apply styles to raters 1, 2, ...
+                    lb = labels_t[0].clone() if hasattr(labels_t[0], 'clone') else labels_t[0].copy()
+                    
+                    # Convert to numpy for morphological operations
+                    if isinstance(lb, torch.Tensor):
+                        lb_np = lb.cpu().numpy()
+                    else:
+                        lb_np = lb
+                    
+                    # print(f"[DEBUG] Rater {rater_id} - Original label shape: {lb_np.shape}, max: {lb_np.max()}")
+                    
+                    # Apply style directly to 2D slice (already (256, 256, 1))
+                    slice_2d = lb_np.squeeze()  # Remove channel dimension to get (256, 256)
+                    slice_augmented = self.apply_rater_style(slice_2d, style)
+                    
+                    # if slice_augmented.max() == 0:
+                    #     print(f"[DEBUG] Rater {rater_id} is all zeros after style {style}")
+                    
+                    # Restore channel dimension
+                    lb_augmented = slice_augmented[..., np.newaxis]  # Back to (256, 256, 1)
+                    
+                    # Convert back to tensor if needed
+                    lb_augmented_tensor = torch.from_numpy(lb_augmented) if isinstance(labels_t[0], torch.Tensor) else lb_augmented
+                    labels_t_augmented[rater_id] = lb_augmented_tensor
+                    # print(f"[DEBUG] Rater {rater_id} - After style {style}, label max: {lb_augmented.max()}")
+            
+            labels_t = labels_t_augmented
+            available_rater_ids = list(range(len(rater_styles)))
+            curr_dict["available_rater_ids"] = available_rater_ids
 
         pair_buffer = []
 
@@ -369,41 +524,38 @@ class SuperpixelDataset(BaseDataset):
             pair_buffer.append(sample)
 
         support_images = []
-        support_masks = {rater_id: [] for rater_id in self.all_rater_ids}  # Dict mapping rater_id -> list of masks
+        support_masks = []  # List of masks for available raters
         support_class = []
 
         query_images = []
-        query_labels_dict = {rater_id: [] for rater_id in self.all_rater_ids}  # Dict mapping rater_id -> list of labels
+        query_labels = []  # List of labels for available raters
         query_class = []
 
         for idx, itm in enumerate(pair_buffer):
             if idx % 2 == 0:
                 support_images.append(itm["image"])
                 support_class.append(1)  # pseudolabel class
-                # Create masks for each rater
-                for rater_id in self.all_rater_ids:
+                # Create masks only for available raters
+                masks = []
+                for rater_id in available_rater_ids:
                     if rater_id in itm["labels"]:
                         mask = self.getMaskMedImg(itm["labels"][rater_id], 1, [1])
-                        support_masks[rater_id].append(mask)
-                    else:
-                        support_masks[rater_id].append(None)
+                        masks.append(mask)
+                support_masks.append(masks)
             else:
                 query_images.append(itm["image"])
                 query_class.append(1)
-                # Store all labels for each rater
-                for rater_id in self.all_rater_ids:
+                # Store labels only for available raters
+                for rater_id in available_rater_ids:
                     if rater_id in itm["labels"]:
-                        query_labels_dict[rater_id].append(itm["labels"][rater_id])
-                    else:
-                        query_labels_dict[rater_id].append(None)
+                        query_labels.append(itm["labels"][rater_id])
 
         return {'class_ids': [support_class], # shape: [[1 x num_support]] where num_support=1 (1 support per num_rep=2 iterations)
             'support_images': [support_images], # shape: 1 way x 1 shot x [3 x H x W]
-            'support_masks': support_masks,  # Dict mapping rater_id -> list of masks. Each list is [{'fg_mask': H x W, 'bg_mask': H x W}]
+            'support_masks': support_masks,  # List of masks for available raters. Each is {'fg_mask': H x W, 'bg_mask': H x W}
             'query_images': query_images, # n_queries x [3 x H x W]
-            'query_labels': query_labels_dict,  # Dict mapping rater_id -> list of labels. Each list is n_queries x [H x W]
-            'available_rater_ids': self.all_rater_ids,  # All rater IDs in the dataset. For example, [1, 2, 3]
-            'sample_rater_ids': available_rater_ids,  # Rater IDs available for this specific sample. For example, [1, 3]
+            'query_labels': query_labels # List of labels for available raters. Each is [H x W]
+            # 'available_rater_ids': available_rater_ids,  # Rater IDs available for this specific sample. For example, [1, 3]
         }
 
 

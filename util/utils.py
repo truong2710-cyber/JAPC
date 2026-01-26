@@ -116,3 +116,202 @@ class CircularList(list):
             step = 1
         return range(start, stop, step)
 
+
+def visualize_multi_rater(support_images, support_masks, query_images, query_labels, save_path=None):
+    """
+    Visualize support images with multi-rater fg masks overlayed, and query images with labels.
+    
+    Args:
+        support_images: List of support images (C x H x W), each as tensor
+        support_masks: List of lists - each inner list contains rater mask dicts with 'fg_mask' and 'bg_mask'
+        query_images: List of query images (C x H x W), each as tensor
+        query_labels: List of query label masks (H x W), each as tensor
+        save_path: Optional path to save visualization
+    
+    Returns:
+        visualization_image: numpy array combining support and query visualizations
+    """
+    import cv2
+    import matplotlib.pyplot as plt
+    from matplotlib import colors as mcolors
+    
+    # Color palette for different raters
+    rater_colors = [
+        (255, 0, 0),      # Red
+        (0, 255, 0),      # Green
+        (0, 0, 255),      # Blue
+        (255, 255, 0),    # Cyan
+        (255, 0, 255),    # Magenta
+        (0, 255, 255),    # Yellow
+    ]
+    
+    def tensor_to_numpy(tensor):
+        """Convert tensor to numpy array"""
+        if isinstance(tensor, torch.Tensor):
+            tensor = tensor.detach().cpu().numpy()
+        return tensor
+    
+    def normalize_image(img):
+        """Normalize image to 0-255 range"""
+        img = tensor_to_numpy(img)
+        
+        # Handle CHW format -> HWC
+        if img.ndim == 3 and img.shape[0] in [1, 3]:
+            img = np.transpose(img, (1, 2, 0))
+        
+        # Remove singleton dimensions
+        while img.ndim > 3 and (img.shape[0] == 1 or img.shape[-1] == 1):
+            img = np.squeeze(img, axis=0) if img.shape[0] == 1 else np.squeeze(img, axis=-1)
+        
+        # Convert single channel to 3 channel
+        if img.ndim == 2:
+            img = np.stack([img, img, img], axis=-1)
+        
+        # Normalize to 0-1 range
+        if img.max() > 1:
+            img = img / (img.max() + 1e-8)
+        img = np.clip(img, 0, 1)
+        
+        return (img * 255).astype(np.uint8)
+    
+    # Process support images
+    # Process support images
+    support_viz = []
+    for shot_idx, shot_masks in enumerate(support_masks):
+        img = normalize_image(support_images[shot_idx])
+        
+        # Ensure image is HWC format with 3 channels
+        if img.ndim == 2:
+            img = np.stack([img, img, img], axis=-1)
+        elif img.ndim == 3 and img.shape[-1] == 1:
+            img = np.repeat(img, 3, axis=-1)
+        elif img.ndim == 3 and img.shape[0] == 3:
+            img = np.transpose(img, (1, 2, 0))
+        
+        # Ensure correct shape
+        assert img.ndim == 3 and img.shape[-1] == 3, f"Image shape should be (H, W, 3), got {img.shape}"
+        
+        # Overlay each rater's fg mask with different color
+        img_with_masks = img.copy().astype(np.float32)
+        
+        for rater_idx, mask_dict in enumerate(shot_masks):
+            fg_mask = tensor_to_numpy(mask_dict['fg_mask'])
+            
+            # Squeeze to 2D (H, W)
+            while fg_mask.ndim > 2:
+                fg_mask = np.squeeze(fg_mask)
+            
+            # Ensure mask is 2D
+            assert fg_mask.ndim == 2, f"Mask should be 2D, got shape {fg_mask.shape}"
+            
+            # Ensure mask is float in [0, 1]
+            fg_mask = fg_mask.astype(np.float32)
+            fg_mask_max = fg_mask.max()
+            if fg_mask_max > 1:
+                fg_mask = fg_mask / (fg_mask_max + 1e-8)
+            fg_mask_binary = (fg_mask > 0.5)  # Boolean mask
+            
+            # Skip if no mask pixels
+            if not fg_mask_binary.any():
+                continue
+            
+            # Resize mask if needed to match image
+            if fg_mask.shape != img_with_masks.shape[:2]:
+                import cv2
+                fg_mask_binary = cv2.resize((fg_mask_binary.astype(np.uint8) * 255), 
+                                           (img_with_masks.shape[1], img_with_masks.shape[0])) > 127
+
+            # Apply color overlay
+            color = rater_colors[rater_idx % len(rater_colors)]
+            for c in range(3):
+                img_with_masks[fg_mask_binary, c] = img_with_masks[fg_mask_binary, c] * 0.5 + color[c] * 0.5
+        
+        img_with_masks = np.clip(img_with_masks, 0, 255).astype(np.uint8)
+        support_viz.append(img_with_masks)
+    
+    # Process query images
+    query_viz = []
+    for query_idx, query_img in enumerate(query_images):
+        img = normalize_image(query_img)
+        
+        # Ensure image is HWC format with 3 channels
+        if img.ndim == 2:
+            img = np.stack([img, img, img], axis=-1)
+        elif img.ndim == 3 and img.shape[-1] == 1:
+            img = np.repeat(img, 3, axis=-1)
+        elif img.ndim == 3 and img.shape[0] == 3:
+            img = np.transpose(img, (1, 2, 0))
+        
+        # Ensure correct shape
+        assert img.ndim == 3 and img.shape[-1] == 3, f"Image shape should be (H, W, 3), got {img.shape}"
+        
+        # Overlay query label
+        img_with_label = img.copy().astype(np.float32)
+        query_label = tensor_to_numpy(query_labels[query_idx])
+        
+        # Squeeze to 2D (H, W)
+        while query_label.ndim > 2:
+            query_label = np.squeeze(query_label)
+        
+        # Ensure label is 2D
+        assert query_label.ndim == 2, f"Label should be 2D, got shape {query_label.shape}"
+        
+        # Ensure label is float in [0, 1]
+        query_label = query_label.astype(np.float32)
+        label_max = query_label.max()
+        if label_max > 1:
+            query_label = query_label / (label_max + 1e-8)
+        
+        query_label_binary = (query_label > 0.5)  # Boolean mask
+        
+        # Skip if no label pixels
+        if not query_label_binary.any():
+            img_with_label = np.clip(img_with_label, 0, 255).astype(np.uint8)
+            query_viz.append(img_with_label)
+            continue
+        
+        # Resize label if needed to match image
+        if query_label.shape != img_with_label.shape[:2]:
+            import cv2
+            query_label_binary = cv2.resize((query_label_binary.astype(np.uint8) * 255), 
+                                           (img_with_label.shape[1], img_with_label.shape[0])) > 127
+        
+        # Overlay label in green
+        img_with_label[query_label_binary, 0] = img_with_label[query_label_binary, 0] * 0.5 + 0 * 0.5     # Red channel
+        img_with_label[query_label_binary, 1] = img_with_label[query_label_binary, 1] * 0.5 + 255 * 0.5   # Green channel
+        img_with_label[query_label_binary, 2] = img_with_label[query_label_binary, 2] * 0.5 + 0 * 0.5     # Blue channel
+        
+        img_with_label = np.clip(img_with_label, 0, 255).astype(np.uint8)
+        query_viz.append(img_with_label)
+    
+    # Combine all visualizations
+    # Concatenate horizontally: all support shots, then all query images
+    if support_viz:
+        support_row = np.hstack(support_viz)
+    else:
+        support_row = None
+    
+    if query_viz:
+        query_row = np.hstack(query_viz)
+    else:
+        query_row = None
+    
+    if support_row is not None and query_row is not None:
+        # Resize query row to match support row height if needed
+        if support_row.shape[0] != query_row.shape[0]:
+            scale = support_row.shape[0] / query_row.shape[0]
+            query_row = cv2.resize(query_row, (int(query_row.shape[1] * scale), support_row.shape[0]))
+        
+        viz_image = np.vstack([support_row, query_row])
+    elif support_row is not None:
+        viz_image = support_row
+    else:
+        viz_image = query_row
+    
+    # Save if path provided
+    if save_path is not None:
+        cv2.imwrite(save_path, viz_image)
+    
+    return viz_image
+
+

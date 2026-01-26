@@ -71,10 +71,10 @@ class FewShotSeg(nn.Module):
         Args:
             supp_imgs: support images
                 way x shot x [B x 3 x H x W], list of lists of tensors
-            fore_mask: foreground masks for support images
-                way x shot x [B x H x W], list of lists of tensors
+            fore_mask: foreground masks for support images. 
+                way x shot x num_raters x [B x H x W], list of lists of lists of tensors
             back_mask: background masks for support images
-                way x shot x [B x H x W], list of lists of tensors
+                way x shot x num_raters x [B x H x W], list of lists of lists of tensors
             qry_imgs: query images
                 N x [B x 3 x H x W], list of tensors
             show_viz: return the visualization dictionary

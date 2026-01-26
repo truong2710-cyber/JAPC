@@ -17,7 +17,7 @@ from dataloaders.GenericSuperDatasetv2 import SuperpixelDataset
 from dataloaders.dataset_utils import DATASET_INFO
 import dataloaders.augutils as myaug
 
-from util.utils import set_seed, t2n, to01, compose_wt_simple
+from util.utils import set_seed, t2n, to01, compose_wt_simple, visualize_multi_rater
 from util.metric import Metric
 
 from config_ssl_upload import ex
@@ -132,22 +132,50 @@ def main(_run, _config, _log):
             # Prepare input
             i_iter += 1 
             # add writers
-            breakpoint()
             support_images = [[shot.cuda() for shot in way]
                               for way in sample_batched['support_images']]
 
-            support_fg_mask = [[shot[f'fg_mask'].float().cuda() for shot in way]
-                               for way in sample_batched['support_mask']]
+            # Get masks from list: sample_batched['support_masks'] is [shot0_masks, shot1_masks, ...]
+            # Each shot_masks is [rater0_dict, rater1_dict, ...] where each dict has 'fg_mask' and 'bg_mask'
+            support_fg_mask = [[[rater_mask['fg_mask'].float().cuda() for rater_mask in shot_masks] 
+                               for shot_masks in sample_batched['support_masks']]]
+            support_bg_mask = [[[rater_mask['bg_mask'].float().cuda() for rater_mask in shot_masks] 
+                               for shot_masks in sample_batched['support_masks']]]
 
-            support_bg_mask = [[shot[f'bg_mask'].float().cuda() for shot in way]
-                               for way in sample_batched['support_mask']]
-            
             query_images = [query_image.cuda()
                             for query_image in sample_batched['query_images']]
             
+            # Get labels from list (query_labels is now a flat list of all labels)
             query_labels = torch.cat(
                 [query_label.long().cuda() for query_label in sample_batched['query_labels']], dim=0)
 
+            # Visualize multi-rater data every N iterations
+            if (i_iter - 1) % (_config['print_interval'] * 5) == 0:
+                try:
+                    # Prepare data for visualization (extract from batch)
+                    # support_images is [way[shot0, shot1, ...]]
+                    support_imgs_for_viz = support_images[0]  # Extract shots from way 0
+                    
+                    # Convert to CPU and prepare for viz
+                    support_imgs_cpu = [img.detach().cpu() for img in support_imgs_for_viz]
+                    support_masks_cpu = [[{k: v.detach().cpu() for k, v in mask_dict.items()} 
+                                         for mask_dict in shot_masks] 
+                                        for shot_masks in sample_batched['support_masks']]
+                    query_imgs_cpu = [img.detach().cpu() for img in query_images]
+                    query_labels_cpu = [label.detach().cpu() for label in sample_batched['query_labels']]
+                    
+                    # Create visualization
+                    viz_image = visualize_multi_rater(
+                        support_imgs_cpu,
+                        support_masks_cpu,
+                        query_imgs_cpu,
+                        query_labels_cpu,
+                        save_path=os.path.join(f'{_run.observers[0].dir}/snapshots', f'viz_{i_iter + 1}.png')
+                    )
+                    _log.info(f'Saved visualization at iteration {i_iter + 1}')
+                except Exception as e:
+                    _log.warning(f'Visualization failed at iteration {i_iter + 1}: {e}')
+            # END visualization block
 
             optimizer.zero_grad()
             # FIXME: in the model definition, filter out the failure case where pseudolabel falls outside of image or too small to calculate a prototype

@@ -71,7 +71,7 @@ def cfg():
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
 
     # SSL
-    superpix_scale = '' #MIDDLE/ LARGE
+    superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
 
     model = {
         'align': usealign,
