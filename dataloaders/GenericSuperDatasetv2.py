@@ -470,15 +470,17 @@ class SuperpixelDataset(BaseDataset):
             
             # Use a deterministic seed based on index and iteration (must be < 2**32 - 1 for numpy)
             aug_seed = (index * 1000 + ii) % (2**31 - 1)
-            torch.manual_seed(aug_seed)
-            np.random.seed(aug_seed)
-            random.seed(aug_seed)
             
             # Apply transforms to all raters with same seed
             lbs_dict = {}
             img = None
             
             for rater_id in sorted_rater_ids:
+                # Reset seed before each transform to ensure identical augmentations
+                torch.manual_seed(aug_seed)
+                np.random.seed(aug_seed)
+                random.seed(aug_seed)
+                
                 comp = np.concatenate([curr_dict["img"], labels_t[rater_id]], axis=-1)
                 img_out, lbs_out = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False)
                 
