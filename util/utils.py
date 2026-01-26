@@ -119,13 +119,13 @@ class CircularList(list):
 
 def visualize_multi_rater(support_images, support_masks, query_images, query_labels, save_path=None):
     """
-    Visualize support images with multi-rater fg masks overlayed, and query images with labels.
+    Visualize support images with multi-rater fg masks overlayed, and query images with multi-rater labels.
     
     Args:
         support_images: List of support images (C x H x W), each as tensor
         support_masks: List of lists - each inner list contains rater mask dicts with 'fg_mask' and 'bg_mask'
         query_images: List of query images (C x H x W), each as tensor
-        query_labels: List of query label masks (H x W), each as tensor
+        query_labels: List of lists - n_queries x raters x (H x W) label tensors
         save_path: Optional path to save visualization
     
     Returns:
@@ -229,7 +229,7 @@ def visualize_multi_rater(support_images, support_masks, query_images, query_lab
         img_with_masks = np.clip(img_with_masks, 0, 255).astype(np.uint8)
         support_viz.append(img_with_masks)
     
-    # Process query images
+    # Process query images with multi-rater labels
     query_viz = []
     for query_idx, query_img in enumerate(query_images):
         img = normalize_image(query_img)
@@ -245,44 +245,46 @@ def visualize_multi_rater(support_images, support_masks, query_images, query_lab
         # Ensure correct shape
         assert img.ndim == 3 and img.shape[-1] == 3, f"Image shape should be (H, W, 3), got {img.shape}"
         
-        # Overlay query label
-        img_with_label = img.copy().astype(np.float32)
-        query_label = tensor_to_numpy(query_labels[query_idx])
+        # Overlay all rater labels for this query
+        img_with_labels = img.copy().astype(np.float32)
+        query_labels_for_raters = query_labels[query_idx]  # List of labels for each rater
         
-        # Squeeze to 2D (H, W)
-        while query_label.ndim > 2:
-            query_label = np.squeeze(query_label)
+        # Iterate through all raters for this query
+        for rater_idx, query_label in enumerate(query_labels_for_raters):
+            query_label = tensor_to_numpy(query_label)
+            
+            # Squeeze to 2D (H, W)
+            while query_label.ndim > 2:
+                query_label = np.squeeze(query_label)
+            
+            # Ensure label is 2D
+            assert query_label.ndim == 2, f"Label should be 2D, got shape {query_label.shape}"
+            
+            # Ensure label is float in [0, 1]
+            query_label = query_label.astype(np.float32)
+            label_max = query_label.max()
+            if label_max > 1:
+                query_label = query_label / (label_max + 1e-8)
+            
+            query_label_binary = (query_label > 0.5)  # Boolean mask
+            
+            # Skip if no label pixels
+            if not query_label_binary.any():
+                continue
+            
+            # Resize label if needed to match image
+            if query_label.shape != img_with_labels.shape[:2]:
+                import cv2
+                query_label_binary = cv2.resize((query_label_binary.astype(np.uint8) * 255), 
+                                               (img_with_labels.shape[1], img_with_labels.shape[0])) > 127
+            
+            # Apply color overlay for this rater
+            color = rater_colors[rater_idx % len(rater_colors)]
+            for c in range(3):
+                img_with_labels[query_label_binary, c] = img_with_labels[query_label_binary, c] * 0.5 + color[c] * 0.5
         
-        # Ensure label is 2D
-        assert query_label.ndim == 2, f"Label should be 2D, got shape {query_label.shape}"
-        
-        # Ensure label is float in [0, 1]
-        query_label = query_label.astype(np.float32)
-        label_max = query_label.max()
-        if label_max > 1:
-            query_label = query_label / (label_max + 1e-8)
-        
-        query_label_binary = (query_label > 0.5)  # Boolean mask
-        
-        # Skip if no label pixels
-        if not query_label_binary.any():
-            img_with_label = np.clip(img_with_label, 0, 255).astype(np.uint8)
-            query_viz.append(img_with_label)
-            continue
-        
-        # Resize label if needed to match image
-        if query_label.shape != img_with_label.shape[:2]:
-            import cv2
-            query_label_binary = cv2.resize((query_label_binary.astype(np.uint8) * 255), 
-                                           (img_with_label.shape[1], img_with_label.shape[0])) > 127
-        
-        # Overlay label in green
-        img_with_label[query_label_binary, 0] = img_with_label[query_label_binary, 0] * 0.5 + 0 * 0.5     # Red channel
-        img_with_label[query_label_binary, 1] = img_with_label[query_label_binary, 1] * 0.5 + 255 * 0.5   # Green channel
-        img_with_label[query_label_binary, 2] = img_with_label[query_label_binary, 2] * 0.5 + 0 * 0.5     # Blue channel
-        
-        img_with_label = np.clip(img_with_label, 0, 255).astype(np.uint8)
-        query_viz.append(img_with_label)
+        img_with_labels = np.clip(img_with_labels, 0, 255).astype(np.uint8)
+        query_viz.append(img_with_labels)
     
     # Combine all visualizations
     # Concatenate horizontally: all support shots, then all query images

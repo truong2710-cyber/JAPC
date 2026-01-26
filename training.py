@@ -145,9 +145,10 @@ def main(_run, _config, _log):
             query_images = [query_image.cuda()
                             for query_image in sample_batched['query_images']]
             
-            # Get labels from list (query_labels is now a flat list of all labels)
-            query_labels = torch.cat(
-                [query_label.long().cuda() for query_label in sample_batched['query_labels']], dim=0)
+            # Get labels from list: query_labels is n_queries x raters x [H x W]
+            # Convert to cuda but keep the multi-rater structure
+            query_labels = [[query_label.long().cuda() for query_label in query_rater_labels] 
+                           for query_rater_labels in sample_batched['query_labels']]
 
             # Visualize multi-rater data every N iterations
             if (i_iter - 1) % (_config['print_interval'] * 5) == 0:
@@ -162,7 +163,9 @@ def main(_run, _config, _log):
                                          for mask_dict in shot_masks] 
                                         for shot_masks in sample_batched['support_masks']]
                     query_imgs_cpu = [img.detach().cpu() for img in query_images]
-                    query_labels_cpu = [label.detach().cpu() for label in sample_batched['query_labels']]
+                    # query_labels_cpu: n_queries x raters x [H x W]
+                    query_labels_cpu = [[label.detach().cpu() for label in query_rater_labels] 
+                                        for query_rater_labels in sample_batched['query_labels']]
                     
                     # Create visualization
                     viz_image = visualize_multi_rater(

@@ -474,18 +474,19 @@ class SuperpixelDataset(BaseDataset):
             np.random.seed(aug_seed)
             random.seed(aug_seed)
             
-            # Apply transforms to first label to get the transformed image
-            first_rater_id = sorted_rater_ids[0]
-            comp_first = np.concatenate([curr_dict["img"], labels_t[first_rater_id]], axis=-1)
-            img, lbs_first = self.transforms(comp_first, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False)
+            # Apply transforms to all raters with same seed
+            lbs_dict = {}
+            img = None
             
-            # Apply same transforms to other labels with same seed
-            lbs_dict = {first_rater_id: torch.from_numpy(lbs_first.squeeze(-1))}
-            
-            for idx, rater_id in enumerate(sorted_rater_ids[1:], 1):
-                comp_other = np.concatenate([curr_dict["img"], labels_t[rater_id]], axis=-1)
-                _, lbs_other = self.transforms(comp_other, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False)
-                lbs_dict[rater_id] = torch.from_numpy(lbs_other.squeeze(-1))
+            for rater_id in sorted_rater_ids:
+                comp = np.concatenate([curr_dict["img"], labels_t[rater_id]], axis=-1)
+                img_out, lbs_out = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False)
+                
+                # Save image only once (same for all raters due to same seed)
+                if img is None:
+                    img = img_out
+                
+                lbs_dict[rater_id] = torch.from_numpy(lbs_out.squeeze(-1))
             
             img = torch.from_numpy(np.transpose(img, (2, 0, 1)))
 
@@ -509,18 +510,6 @@ class SuperpixelDataset(BaseDataset):
                     "z_id": z_id
                     }
 
-            # Add auxiliary attributes
-            if self.aux_attrib is not None:
-                for key_prefix in self.aux_attrib:
-                    # Process the data sample, create new attributes and save them in a dictionary
-                    # Use the first available label for auxiliary attribute computation
-                    sample_for_aux = sample.copy()
-                    first_rater_id = available_rater_ids[0]
-                    sample_for_aux["label"] = lbs_dict[first_rater_id]  # Provide first label for compatibility
-                    aux_attrib_val = self.aux_attrib[key_prefix](sample_for_aux, **self.aux_attrib_args[key_prefix])
-                    for key_suffix in aux_attrib_val:
-                        # one function may create multiple attributes, so we need suffix to distinguish them
-                        sample[key_prefix + '_' + key_suffix] = aux_attrib_val[key_suffix]
             pair_buffer.append(sample)
 
         support_images = []
@@ -546,15 +535,17 @@ class SuperpixelDataset(BaseDataset):
                 query_images.append(itm["image"])
                 query_class.append(1)
                 # Store labels only for available raters
+                masks = []
                 for rater_id in available_rater_ids:
                     if rater_id in itm["labels"]:
-                        query_labels.append(itm["labels"][rater_id])
+                        masks.append(itm["labels"][rater_id])
+                query_labels.append(masks)
 
         return {'class_ids': [support_class], # shape: [[1 x num_support]] where num_support=1 (1 support per num_rep=2 iterations)
             'support_images': [support_images], # shape: 1 way x 1 shot x [3 x H x W]
-            'support_masks': support_masks,  # List of masks for available raters. Each is {'fg_mask': H x W, 'bg_mask': H x W}
+            'support_masks': support_masks,  # shots x raters x {'fg_mask': H x W, 'bg_mask': H x W}
             'query_images': query_images, # n_queries x [3 x H x W]
-            'query_labels': query_labels # List of labels for available raters. Each is [H x W]
+            'query_labels': query_labels # n_queries x rater x [H x W]
             # 'available_rater_ids': available_rater_ids,  # Rater IDs available for this specific sample. For example, [1, 3]
         }
 
