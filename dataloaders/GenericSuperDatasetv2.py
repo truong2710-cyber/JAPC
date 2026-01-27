@@ -110,20 +110,52 @@ class SuperpixelDataset(BaseDataset):
         Returns:
             List of style specifications, e.g., [('erosion', 1), ('dilation', 1), ('fill_holes', 0)]
         """
-        # Use only safe operations that won't completely destroy masks
-        operations = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes']
+        # Build a richer set of possible operations and parameters
+        simple_ops = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes', 'component_prune']
         styles = []
-        
+
         for _ in range(n_raters):
-            op = random.choice(operations)
-            
-            if op in ['erosion', 'dilation', 'opening', 'closing']:
-                # Always use kernel size 1 (3x3 kernel) to avoid destroying masks
-                styles.append((op, 1))
-            elif op == 'fill_holes':
-                # Simple hole filling
-                styles.append((op, 0))
-        
+            # Either pick a single op or a short randomized sequence to increase diversity
+            if random.random() < 0.6:
+                op = random.choice(simple_ops + ['boundary_shift', 'gaussian_blur'])
+                if op in ['erosion', 'dilation', 'opening', 'closing']:
+                    # kernel sizes in pixels: 1 -> 3x3, 2 -> 5x5, 3 -> 7x7
+                    k = random.choice([1, 2, 3])
+                    styles.append((op, k))
+                elif op == 'gaussian_blur':
+                    # sigma for gaussian blur
+                    sigma = random.uniform(0.5, 2.0)
+                    styles.append((op, sigma))
+                elif op == 'boundary_shift':
+                    # directional bias: left/right/up/down
+                    direction = random.choice(['left', 'right', 'up', 'down'])
+                    k = random.choice([1, 2, 3])
+                    styles.append((op, {'k': k, 'direction': direction, 'iterations': random.choice([1,2])}))
+                elif op == 'component_prune':
+                    # remove very small components; param is min_size
+                    min_size = random.choice([5, 10, 20, 50])
+                    styles.append((op, min_size))
+                elif op == 'fill_holes':
+                    styles.append((op, 0))
+            else:
+                # Sequence of two ops (e.g., erode then dilate with different kernels)
+                seq = []
+                for _s in range(2):
+                    op = random.choice(simple_ops + ['boundary_shift'])
+                    if op in ['erosion', 'dilation', 'opening', 'closing']:
+                        k = random.choice([1, 2, 3])
+                        seq.append((op, k))
+                    elif op == 'boundary_shift':
+                        direction = random.choice(['left', 'right', 'up', 'down'])
+                        k = random.choice([1, 2])
+                        seq.append((op, {'k': k, 'direction': direction, 'iterations': 1}))
+                    elif op == 'component_prune':
+                        min_size = random.choice([5, 10, 20])
+                        seq.append((op, min_size))
+                    elif op == 'fill_holes':
+                        seq.append((op, 0))
+                styles.append(('sequence', seq))
+
         return styles
     
     def apply_rater_style(self, mask, style):
@@ -155,42 +187,83 @@ class SuperpixelDataset(BaseDataset):
                 result = result[..., np.newaxis]
             return result
         
-        op_name, param = style
-        
-        # Use smaller kernels to avoid eroding masks completely
-        if op_name == 'erosion':
-            # Only erode by 1 pixel to keep most of the mask
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            result = cv2.erode(mask_uint8, kernel, iterations=1)
-        elif op_name == 'dilation':
-            # Dilate by small amount
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            result = cv2.dilate(mask_uint8, kernel, iterations=1)
-        elif op_name == 'opening':
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            result = cv2.morphologyEx(mask_uint8, cv2.MORPH_OPEN, kernel)
-        elif op_name == 'closing':
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            result = cv2.morphologyEx(mask_uint8, cv2.MORPH_CLOSE, kernel)
-        elif op_name == 'boundary_shift':
-            # Small erosion and dilation
-            kernel_e = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            kernel_d = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            eroded = cv2.erode(mask_uint8, kernel_e, iterations=1)
-            result = cv2.dilate(eroded, kernel_d, iterations=1)
-        elif op_name == 'component_prune':
-            # Only remove very small components
-            labeled_array, num_features = ndimage.label(mask_uint8 > 127)
-            result = np.zeros_like(mask_uint8)
-            for label_id in range(1, num_features + 1):
-                component = labeled_array == label_id
-                if np.sum(component) >= min(param, 5):  # Cap at 5 pixels minimum
-                    result[component] = 255
-        elif op_name == 'fill_holes':
-            # Fill small holes
-            result = ndimage.binary_fill_holes(mask_uint8 > 127).astype(np.uint8) * 255
+        def _asymmetric_kernel(k, direction):
+            # Create an asymmetric kernel of size (2*k+1, 2*k+1) biased towards a direction
+            size = 2 * k + 1
+            K = np.zeros((size, size), dtype=np.uint8)
+            # Fill half of kernel depending on direction
+            if direction == 'left':
+                K[:, : (size // 2) + 1] = 1
+            elif direction == 'right':
+                K[:, (size // 2):] = 1
+            elif direction == 'up':
+                K[: (size // 2) + 1, :] = 1
+            elif direction == 'down':
+                K[(size // 2):, :] = 1
+            else:
+                K[:, :] = 1
+            return K.astype(np.uint8)
+
+        def _apply_op_one(op_name, param, img_uint8):
+            # param can be int, float, dict
+            if op_name in ['erosion', 'dilation', 'opening', 'closing']:
+                k = int(param)
+                ks = 2 * k + 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ks, ks))
+                iters = 1
+                if op_name == 'erosion':
+                    return cv2.erode(img_uint8, kernel, iterations=iters)
+                elif op_name == 'dilation':
+                    return cv2.dilate(img_uint8, kernel, iterations=iters)
+                elif op_name == 'opening':
+                    return cv2.morphologyEx(img_uint8, cv2.MORPH_OPEN, kernel)
+                elif op_name == 'closing':
+                    return cv2.morphologyEx(img_uint8, cv2.MORPH_CLOSE, kernel)
+            elif op_name == 'boundary_shift':
+                # param is dict with keys 'k', 'direction', 'iterations'
+                k = int(param.get('k', 1))
+                direction = param.get('direction', 'right')
+                iters = int(param.get('iterations', 1))
+                # erosion with asymmetric kernel on one side
+                ker_e = _asymmetric_kernel(k, direction)
+                ker_d = _asymmetric_kernel(k, direction)
+                out = img_uint8.copy()
+                for _i in range(iters):
+                    out = cv2.erode(out, ker_e, iterations=1)
+                # dilate with opposite bias to expand on other side
+                opp = {'left': 'right', 'right': 'left', 'up': 'down', 'down': 'up'}
+                ker_d = _asymmetric_kernel(k, opp.get(direction, 'right'))
+                for _i in range(iters):
+                    out = cv2.dilate(out, ker_d, iterations=1)
+                return out
+            elif op_name == 'component_prune':
+                min_size = int(param)
+                labeled_array, num_features = ndimage.label(img_uint8 > 127)
+                result = np.zeros_like(img_uint8)
+                for label_id in range(1, num_features + 1):
+                    component = labeled_array == label_id
+                    if np.sum(component) >= max(1, min_size):
+                        result[component] = 255
+                return result
+            elif op_name == 'fill_holes':
+                return (ndimage.binary_fill_holes(img_uint8 > 127).astype(np.uint8) * 255)
+            elif op_name == 'gaussian_blur':
+                sigma = float(param)
+                ksize = max(3, int(2 * round(3 * sigma) + 1))
+                return cv2.GaussianBlur(img_uint8, (ksize, ksize), sigmaX=sigma)
+            else:
+                return img_uint8
+
+        # If style is a sequence apply sequentially
+        if isinstance(style, tuple) and style[0] == 'sequence':
+            seq = style[1]
+            cur = mask_uint8
+            for op_name, param in seq:
+                cur = _apply_op_one(op_name, param, cur)
+            result = cur
         else:
-            result = mask_uint8
+            op_name, param = style
+            result = _apply_op_one(op_name, param, mask_uint8)
         
         # If result is empty, use original mask
         if result.max() == 0:
