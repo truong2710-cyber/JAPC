@@ -135,10 +135,10 @@ class FewShotSeg(nn.Module):
         """
         mol = 'Loss'
         # ('Please go through this piece of code carefully')
-        n_ways = len(supp_imgs) 
+        n_ways = len(supp_imgs)
         n_shots = len(supp_imgs[0])
         n_queries = len(qry_imgs) 
-        # breakpoint()
+
         # print("aa", n_ways, "bb", n_shots, "cc", n_queries)
 
         assert n_ways == 1, "Multi-shot has not been implemented yet" # NOTE: actual shot in support goes in batch dimension
@@ -162,136 +162,108 @@ class FewShotSeg(nn.Module):
             n_ways, n_shots, sup_bsize, -1, *fts_size)  # Wa x Sh x B x C x H' x W'
         qry_fts = img_fts[n_ways * n_shots * sup_bsize:].view(
             n_queries, qry_bsize, -1, *fts_size)        # N x B x C x H' x W'
-        
-        # Handle multi-rater masks: fore_mask and back_mask are way x shot x num_raters x [B x H x W]
-        # Stack to get proper shape for processing
-        # fore_mask: list of lists of lists of tensors -> way x shot x num_raters x B x H x W
-        fore_mask_stacked = torch.stack([torch.stack([torch.stack(rater_list, dim=0) 
-                                                       for rater_list in shot_list], dim=0)
-                                         for shot_list in fore_mask], dim=0)  # Wa x Sh x Raters x B x H x W
-        back_mask_stacked = torch.stack([torch.stack([torch.stack(rater_list, dim=0) 
-                                                       for rater_list in shot_list], dim=0)
-                                         for shot_list in back_mask], dim=0)  # Wa x Sh x Raters x B x H x W
-        
-        # Squeeze out batch dimension since B=1
-        fore_mask_stacked = fore_mask_stacked.squeeze(3)  # Wa x Sh x Raters x H x W
-        back_mask_stacked = back_mask_stacked.squeeze(3)  # Wa x Sh x Raters x H x W
-        
-        # Interpolate masks to feature size
-        # Reshape to flatten way, shot, raters for batch processing
-        Wa, Sh, Raters, H, W = fore_mask_stacked.shape
-        fore_mask_flat = fore_mask_stacked.view(Wa * Sh * Raters, 1, H, W)
-        back_mask_flat = back_mask_stacked.view(Wa * Sh * Raters, 1, H, W)
-        
-        fore_mask_resized = F.interpolate(fore_mask_flat, size=fts_size, mode='bilinear')  # [Wa*Sh*Raters, 1, H', W']
-        back_mask_resized = F.interpolate(back_mask_flat, size=fts_size, mode='bilinear')  # [Wa*Sh*Raters, 1, H', W']
-        
-        # Reshape back
-        fore_mask_resized = fore_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x Raters x H' x W'
-        back_mask_resized = back_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x Raters x H' x W'
-        
-        # Compute consensus masks (average across raters and threshold at 0.5)
+        # fore_mask and back_mask expected as: way x shot x raters x [B x H x W]
+        # Stack into tensors: Wa x Sh x R x B x H x W
+        fore_mask_stacked = torch.stack([
+            torch.stack([torch.stack(rater_list, dim=0) for rater_list in shot_list], dim=0)
+            for shot_list in fore_mask], dim=0)  # Wa x Sh x R x B x H x W
+        back_mask_stacked = torch.stack([
+            torch.stack([torch.stack(rater_list, dim=0) for rater_list in shot_list], dim=0)
+            for shot_list in back_mask], dim=0)  # Wa x Sh x R x B x H x W
+
+        # Squeeze batch dim (B=1) -> Wa x Sh x R x H x W
+        fore_mask_stacked = fore_mask_stacked.squeeze(3)
+        back_mask_stacked = back_mask_stacked.squeeze(3)
+
+        Wa, Sh, Raters, H_m, W_m = fore_mask_stacked.shape
+
+        # Resize masks to feature spatial size
+        fore_mask_flat = fore_mask_stacked.view(Wa * Sh * Raters, 1, H_m, W_m)
+        back_mask_flat = back_mask_stacked.view(Wa * Sh * Raters, 1, H_m, W_m)
+
+        fore_mask_resized = F.interpolate(fore_mask_flat.float(), size=fts_size, mode='bilinear')
+        back_mask_resized = F.interpolate(back_mask_flat.float(), size=fts_size, mode='bilinear')
+
+        fore_mask_resized = fore_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x R x H' x W'
+        back_mask_resized = back_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x R x H' x W'
+
+        # consensus mask from resized fore masks for seed init
         fore_mask_consensus = (fore_mask_resized.mean(dim=2) > 0.5).float()  # Wa x Sh x H' x W'
-        back_mask_consensus = (back_mask_resized.mean(dim=2) > 0.5).float()  # Wa x Sh x H' x W'
-        
-        # Get seed points from first shot's consensus mask
-        s_y = fore_mask_consensus[0, 0]  # H' x W'
+        s_y = fore_mask_consensus[0, 0]
 
         init_seed_list = []
-        mask = (s_y == 1).float()  # H x W 
+        mask = (s_y == 1).float()  # H' x W'
 
-        init_seed = place_seed_points_d(mask, down_stride=8, max_num_sp=5,
-                                                            avg_sp_area=100)
+        init_seed = place_seed_points_d(mask, down_stride=8, max_num_sp=5, avg_sp_area=100)
         init_seed_list.append(init_seed.unsqueeze(0))
         s_init_seed = torch.cat(init_seed_list).cuda()
 
-        ###### Compute personalized prototypes for each rater ######
+        back_mask_consensus = (back_mask_resized.mean(dim=2) > 0.5).float()
+
+        ###### Compute loss ######
         align_loss = 0
         outputs = []
         visualizes = [] # the buffer for visualization
 
         for epi in range(1):
-            # Extract prototypes: consensus (p0) and per-rater (p_i)
-            # supp_fts: Wa x Sh x B x C x H' x W'
-            # fore_mask_consensus: Wa x Sh x H' x W'
-            # fore_mask_resized: Wa x Sh x Raters x H' x W'
-            # back_mask_consensus: Wa x Sh x H' x W'
-            # back_mask_resized: Wa x Sh x Raters x H' x W'
-            
-            way = 0  # Only single way for now
-            shot = 0  # Use first shot
-            supp_fts_single = supp_fts[way, shot, 0, :, :, :]  # C x H' x W' (B=1)
-            
-            # Extract consensus prototypes
-            fg_proto_consensus = self.extract_prototype(supp_fts_single, fore_mask_consensus[way, shot])  # [C]
-            bg_proto_consensus = self.extract_prototype(supp_fts_single, back_mask_consensus[way, shot])  # [C]
-            
-            # Extract rater-specific prototypes and compute calibrated versions
-            protos_calibrated_fg = []
-            protos_calibrated_bg = []
-            
-            for rater_idx in range(Raters):
-                # Extract rater-specific prototypes
-                fg_proto_rater = self.extract_prototype(supp_fts_single, fore_mask_resized[way, shot, rater_idx])  # [C]
-                bg_proto_rater = self.extract_prototype(supp_fts_single, back_mask_resized[way, shot, rater_idx])  # [C]
-                
-                # Compute residuals using MLP
-                # Input: [p0, p_i - p0]
-                fg_input = torch.cat([fg_proto_consensus, fg_proto_rater - fg_proto_consensus], dim=0)  # [2*C]
-                bg_input = torch.cat([bg_proto_consensus, bg_proto_rater - bg_proto_consensus], dim=0)  # [2*C]
-                
-                fg_residual = self.residual_mlp(fg_input.unsqueeze(0)).squeeze(0)  # [C]
-                bg_residual = self.residual_mlp(bg_input.unsqueeze(0)).squeeze(0)  # [C]
-                
-                # Calibrated prototypes: p0 + p~_i
-                fg_proto_calibrated = fg_proto_consensus + fg_residual  # [C]
-                bg_proto_calibrated = bg_proto_consensus + bg_residual  # [C]
-                
-                protos_calibrated_fg.append(fg_proto_calibrated)
-                protos_calibrated_bg.append(bg_proto_calibrated)
-            
-            # Generate per-rater predictions
             scores_per_rater = []
-            
-            for rater_idx in range(Raters):
-                # Use calibrated prototypes for this rater to compute similarity scores
-                # For now, use the classifier with consensus mask and per-rater calibrated prototypes
-                # This is a simplified approach - ideally we'd modify the classifier to use custom prototypes
-                
-                _raw_score_bg, _, aux_attr_bg = self.cls_unit(mol, qry_fts, supp_fts, back_mask_consensus.unsqueeze(2),
-                                                               s_init_seed, mode=BG_PROT_MODE, thresh=BG_THRESH, 
-                                                               isval=isval, val_wsize=val_wsize, vis_sim=show_viz)
-                
-                _raw_score_fg, _, aux_attr_fg = self.cls_unit(mol, qry_fts, supp_fts, fore_mask_consensus.unsqueeze(2),
-                                                               s_init_seed, mode=FG_PROT_MODE if F.avg_pool2d(fore_mask_consensus, 4).max() >= FG_THRESH else 'mask',
-                                                               thresh=FG_THRESH, isval=isval, val_wsize=val_wsize, vis_sim=show_viz)
-                
-                # Concatenate bg and fg scores
-                score = torch.cat([_raw_score_bg, _raw_score_fg], dim=1)  # N x 2 x H' x W'
-                scores_per_rater.append(score)
-            
-            # Stack scores from all raters - keep them separate
-            scores_all = torch.stack(scores_per_rater, dim=0)  # [Raters, N, 2, H', W']
-            
-            # Interpolate to original image size for each rater
-            for rater_idx in range(Raters):
+            assign_maps = []
+            bg_sim_maps = []
+            fg_sim_maps = []
+
+            # Call classifier once, passing all raters' masks; classifier will perform per-rater prototype calibration
+            _raw_scores_bg, assign_bg, aux_bg = self.cls_unit(mol, qry_fts, supp_fts, back_mask_resized, s_init_seed,
+                                                              mode=BG_PROT_MODE, thresh=BG_THRESH, isval=isval,
+                                                              val_wsize=val_wsize, vis_sim=show_viz, residual_mlp=self.residual_mlp)
+            _raw_scores_fg, assign_fg, aux_fg = self.cls_unit(mol, qry_fts, supp_fts, fore_mask_resized, s_init_seed,
+                                                              mode=FG_PROT_MODE if F.avg_pool2d(fore_mask_consensus, 4).max() >= FG_THRESH else 'mask',
+                                                              thresh=FG_THRESH, isval=isval, val_wsize=val_wsize, vis_sim=show_viz, residual_mlp=self.residual_mlp)
+
+            # _raw_scores_* expected shape: Raters x N x 1 x H' x W'
+            # combine bg and fg per rater along class dim
+            scores_all = torch.cat([_raw_scores_bg, _raw_scores_fg], dim=2)  # R x N x 2 x H' x W'
+
+            # collect assign and sim maps if provided
+            if assign_bg is not None:
+                assign_maps.append(assign_bg)
+            if show_viz:
+                bg_sim_maps.append(aux_bg.get('raw_local_sims', None) if isinstance(aux_bg, dict) else None)
+                fg_sim_maps.append(aux_fg.get('raw_local_sims', None) if isinstance(aux_fg, dict) else None)
+
+            # interpolate each rater's score to image size and append to outputs
+            for rater_idx in range(scores_all.shape[0]):
                 pred_rater = F.interpolate(scores_all[rater_idx], size=img_size, mode='bilinear')
                 outputs.append(pred_rater)
-            
-            # Compute alignment loss if enabled - use consensus (averaged) predictions
-            if self.config['align'] and self.training:
-                final_score = scores_all.mean(dim=0)  # Average across raters for consensus
-                align_loss_epi = self.alignLoss_multi_rater(qry_fts, final_score, 
-                                                             F.interpolate(final_score, size=img_size, mode='bilinear'),
-                                                             supp_fts, 
-                                                             fore_mask_consensus, back_mask_consensus,
-                                                             fore_mask_resized, back_mask_resized)
-                align_loss += align_loss_epi
-            
-        output = torch.cat(outputs, dim=0)  # [Raters*N, 2, H, W]
-        
-        return output, align_loss / sup_bsize, None, None
 
+            if self.config.get('align', False) and self.training:
+                # average predictions across raters for alignment loss (consensus)
+                pred = scores_all.mean(dim=0)  # N x 2 x H' x W'
+                pred_int = F.interpolate(pred, size=img_size, mode='bilinear')
+                align_loss_epi = self.alignLoss_multi_rater(qry_fts, pred, pred_int, supp_fts,
+                                                           fore_mask_consensus, back_mask_consensus,
+                                                           fore_mask_resized, back_mask_resized)
+                align_loss += align_loss_epi
+             
+
+        output = torch.stack(outputs, dim=1)  # N x Raters x 2 x H x W
+        output = output.view(-1, *output.shape[2:])
+
+        if len(assign_maps) > 0 and assign_maps[0] is not None:
+            assign_maps = torch.stack(assign_maps, dim=1)
+        else:
+            assign_maps = None
+
+        if show_viz and len(bg_sim_maps) > 0 and bg_sim_maps[0] is not None:
+            bg_sim_maps = torch.stack(bg_sim_maps, dim=1)
+        else:
+            bg_sim_maps = None
+
+        if show_viz and len(fg_sim_maps) > 0 and fg_sim_maps[0] is not None:
+            fg_sim_maps = torch.stack(fg_sim_maps, dim=1)
+        else:
+            fg_sim_maps = None
+
+        return output, align_loss / sup_bsize, [bg_sim_maps, fg_sim_maps], assign_maps
 
     # Batch was at the outer loop
     def alignLoss_multi_rater(self, qry_fts, pred, pred_int, supp_fts, 
