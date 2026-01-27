@@ -59,12 +59,10 @@ class MultiProtoAsConv(nn.Module):
             sup_y:      [way(1), shot, nb(1), h, w]
             vis_sim:    visualize raw similarities or not
         """
-
+        breakpoint()
         qry = qry.squeeze(1) # [way(1), nb(1), nc, hw] -> [way(1), nc, h, w]
         sup_x = sup_x.squeeze(0).squeeze(1) # [nshot, nc, h, w]
-        # sup_y may be provided per-rater: after squeeze -> [nshot, R, h, w] or [nshot, 1, h, w]
-        sup_y = sup_y.squeeze(0)
-        residual_mlp = kwargs.get('residual_mlp', None)
+        sup_y = sup_y.squeeze(0) # [nshot, 1, h, w]
 
         def safe_norm(x, p = 2, dim = 1, eps = 1e-4):
             x_norm = torch.norm(x, p = p, dim = dim) # .detach()
@@ -79,48 +77,18 @@ class MultiProtoAsConv(nn.Module):
             s_seed_ = s_init_seed[0, :, :] 
             num_sp = max(len(torch.nonzero(s_seed_[:, 0])), len(torch.nonzero(s_seed_[:, 1])))
             if (num_sp == 0):
-                # handle multi-rater sup_y: shape [nshot, R, h, w] or [nshot, 1, h, w]
-                if sup_y.dim() == 4 and sup_y.shape[1] > 1:
-                    R = sup_y.shape[1]
-                    protos_r = []
-                    for r in range(R):
-                        sy = sup_y[:, r, :, :].unsqueeze(1)  # nshot x 1 x h x w
-                        proto_r = torch.sum(out_su * sy, dim=(-1, -2)) / (sy.sum(dim=(-1, -2)) + 1e-5)
-                        protos_r.append(proto_r)
-                    # consensus prototype p0
-                    sy_mean = sup_y.mean(dim=1).unsqueeze(1)
-                    proto0 = torch.sum(out_su * sy_mean, dim=(-1, -2)) / (sy_mean.sum(dim=(-1, -2)) + 1e-5)
-                    # calibrate if residual_mlp provided
-                    if residual_mlp is not None:
-                        protos = []
-                        for proto_r in protos_r:
-                            p0_avg = proto0.mean(dim=0, keepdim=True)
-                            pr_avg = proto_r.mean(dim=0, keepdim=True)
-                            residual = residual_mlp(torch.cat([p0_avg, (pr_avg - p0_avg)], dim=1))
-                            proto_r_cal = proto_r + residual
-                            protos.append(proto_r_cal)
-                    else:
-                        protos = protos_r
-                    # produce per-rater cosine similarity masks
-                    pred_masks = []
-                    for proto in protos:
-                        pred_mask = F.cosine_similarity(qry, proto[..., None, None], dim=1, eps=1e-4) * 20.0
-                        pred_masks.append(pred_mask.unsqueeze(1))
-                    pred_masks = torch.cat(pred_masks, dim=0)
-                    vis_dict = {'proto_assign': None}
-                    if vis_sim:
-                        vis_dict['raw_local_sims'] = pred_masks.clone().detach()
-                    return pred_masks, [pred_masks], vis_dict
-                else:
-                    proto = torch.sum(out_su * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5) # nb x C 
-                    cos_sim_map_sup = F.conv2d(out_su, proto[..., None, None].repeat(1, 1, 1, 1))  
-                    cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1) 
-                    attention = cos_sim_map_sup_t.softmax(dim=-1)
-                    sp_center_t = proto.t().unsqueeze(0) 
-                    out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1]) 
-                    out1 = out + sup_x
+                proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
+                         / (sup_y.sum(dim=(-1, -2)) + 1e-5) # nb x C 
+                cos_sim_map_sup = F.conv2d(out_su,
+                                            proto[..., None, None].repeat(1, 1, 1, 1))  
+                cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1) 
+                attention = cos_sim_map_sup_t.softmax(dim=-1)
+                sp_center_t = proto.t().unsqueeze(0) 
+                out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1]) 
+                out1 = out + sup_x
 
-                    proto = torch.sum(out1 * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                proto = torch.sum(out1 * sup_y, dim=(-1, -2)) \
+                / (sup_y.sum(dim=(-1, -2)) + 1e-5) 
             else: 
                 if mol == 'alignLoss':
                     proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
@@ -178,8 +146,8 @@ class MultiProtoAsConv(nn.Module):
 
             n_sup_x = n_sup_x.reshape(1, -1, nch).unsqueeze(0)
             sup_y_g = F.avg_pool2d(sup_y, val_wsize) if isval else self.avg_pool_op(sup_y)
+            sup_y_g = sup_y_g.view( sup_nshot, 1, -1  ).permute(1, 0, 2).view(1, -1).unsqueeze(0) 
             
-            # handle multi-rater pooled masks later; keep original shape for single-rater
             n_sup_x = n_sup_x.permute(0, 1, 3, 2).squeeze(0).squeeze(0)
             
             w1 = torch.mm(n_sup_x.float(),n_sup_x.permute(1, 0).float()) # 256 256
@@ -361,7 +329,7 @@ class MultiProtoAsConv(nn.Module):
         else:
             raise NotImplementedError
 
-    
+      
     def avg_near(self, tmp):
         N = tmp.shape[0]
         cal = torch.eye(N).cuda()
