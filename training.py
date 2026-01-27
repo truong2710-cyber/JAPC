@@ -19,12 +19,224 @@ import dataloaders.augutils as myaug
 
 from util.utils import set_seed, t2n, to01, compose_wt_simple, visualize_multi_rater
 from util.metric import Metric
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 from config_ssl_upload import ex
 import tqdm
 
 # config pre-trained model caching path
 os.environ['TORCH_HOME'] = "./pretrained_model"
+
+def visualize_batch(sample_batched, query_images, query_labels, i_iter, _run, _log):
+    """
+    Visualize multi-rater support and query data
+    """
+    try:
+        # Prepare data for visualization (extract from batch)
+        support_images = [[shot.cpu() for shot in way]
+                          for way in sample_batched['support_images']]
+        
+        # Convert to CPU and prepare for viz
+        support_imgs_cpu = [img.detach().cpu() for img in support_images[0]]
+        support_masks_cpu = [[{k: v.detach().cpu() for k, v in mask_dict.items()} 
+                             for mask_dict in shot_masks] 
+                            for shot_masks in sample_batched['support_masks']]
+        query_imgs_cpu = [img.detach().cpu() for img in query_images]
+        # query_labels_cpu: n_queries x raters x [H x W]
+        query_labels_cpu = [[label.detach().cpu() for label in query_rater_labels] 
+                            for query_rater_labels in query_labels]
+        
+        # Create visualization
+        viz_image = visualize_multi_rater(
+            support_imgs_cpu,
+            support_masks_cpu,
+            query_imgs_cpu,
+            query_labels_cpu,
+            save_path=os.path.join(f'{_run.observers[0].dir}/snapshots', f'viz_{i_iter + 1}.png')
+        )
+        _log.info(f'Saved visualization at iteration {i_iter + 1}')
+    except Exception as e:
+        _log.warning(f'Visualization failed at iteration {i_iter + 1}: {e}')
+
+
+def visualize_pred_and_label(support_images, support_masks, query_images, query_pred_reshaped, query_labels, i_iter, _run, _log):
+    """
+    Create a single figure showing for the first query (index 0) and each rater:
+    - support image (first support shot)
+    - support label (fg mask)
+    - query image
+    - query prediction (argmax over channels)
+    - query label (rater)
+
+    The figure is saved to the experiment snapshots directory.
+    """
+    # pick first query for visualization
+    q_idx = 0
+
+    num_raters = query_pred_reshaped.shape[0]
+
+    # Prepare support images and masks (CPU tensors)
+    support_imgs_cpu = [img.detach().cpu() for img in support_images[0]] if support_images and len(support_images) > 0 else []
+    support_masks_cpu = [[{k: v.detach().cpu() for k, v in mask_dict.items()} for mask_dict in shot_masks]
+                            for shot_masks in support_masks]
+
+    # Helper to convert tensors/arrays to HxW or HxWx3 numpy arrays for imshow
+    def _prepare_image(x):
+        # x may be a torch tensor or numpy array
+        if isinstance(x, torch.Tensor):
+            x = x.detach().cpu()
+            x = to01(x)
+            x = t2n(x)
+        a = x
+        # remove batch dim if present
+        if a.ndim == 4 and a.shape[0] == 1:
+            a = np.squeeze(a, axis=0)
+        # if CHW -> HWC
+        if a.ndim == 3 and a.shape[0] in (1, 3):
+            a = np.transpose(a, (1, 2, 0))
+        # if single channel HxW keep as is
+        return a
+
+    # Prepare query image
+    query_img_tensor = query_images[q_idx]
+    query_img_np = _prepare_image(query_img_tensor)
+
+    # Prepare predicted and label masks for Dice computation
+    pred_masks = []
+    for r in range(num_raters):
+        pm = query_pred_reshaped[r, q_idx].argmax(0).detach().cpu().numpy()
+        if pm.ndim == 3 and pm.shape[0] == 1:
+            pm = np.squeeze(pm, axis=0)
+        pred_masks.append((pm == 1).astype(np.uint8))
+
+    label_masks = []
+    for k in range(num_raters):
+        ql = query_labels[q_idx][k]
+        if isinstance(ql, torch.Tensor):
+            ql = ql.detach().cpu().numpy()
+        if ql.ndim == 3 and ql.shape[0] > 1:
+            ql = ql.argmax(0)
+        if ql.ndim == 3 and ql.shape[0] == 1:
+            ql = np.squeeze(ql, axis=0)
+        label_masks.append((ql == 1).astype(np.uint8))
+
+    # Compute pairwise Dice: rows are pred rater, cols are label rater
+    dice_matrix = np.zeros((num_raters, num_raters), dtype=float)
+    for i in range(num_raters):
+        for j in range(num_raters):
+            p = pred_masks[i]
+            g = label_masks[j]
+            inter = (p & g).sum()
+            psum = p.sum()
+            gsum = g.sum()
+            if psum == 0 and gsum == 0:
+                dice = 1.0
+            else:
+                dice = 2.0 * inter / (psum + gsum + 1e-6)
+            dice_matrix[i, j] = dice
+
+    # Check personalization: whether pred for rater i matches its own label better than any other label
+    personalized = np.zeros(num_raters, dtype=bool)
+    for i in range(num_raters):
+        self_d = dice_matrix[i, i]
+        others = np.delete(dice_matrix[i], i) if num_raters > 1 else np.array([0.0])
+        max_other = float(np.max(others)) if others.size > 0 else 0.0
+        personalized[i] = self_d > max_other
+
+    # Check if predictions across raters are identical (binary masks)
+    pred_identical = {i: [] for i in range(num_raters)}
+    for i in range(num_raters):
+        for j in range(i + 1, num_raters):
+            if np.array_equal(pred_masks[i], pred_masks[j]):
+                pred_identical[i].append(j)
+                pred_identical[j].append(i)
+
+    # Prepare figure: 5 rows (support img, support label, query img, query pred, query label) x num_raters columns
+    fig, axes = plt.subplots(nrows=5, ncols=num_raters, figsize=(3 * num_raters, 15))
+    if num_raters == 1:
+        axes = axes.reshape(5, 1)
+
+    for r in range(num_raters):
+        # Support image (use first support shot)
+        if support_imgs_cpu:
+            sup_img_np = _prepare_image(support_imgs_cpu[0])
+            axes[0, r].imshow(sup_img_np)
+            axes[0, r].set_title(f'Rater {r}: Support Image')
+            axes[0, r].axis('off')
+
+            # Support label (fg mask)
+            try:
+                sup_mask = support_masks_cpu[0][r]['fg_mask'].numpy()
+                # sup_mask may have channel dim
+                if sup_mask.ndim == 3 and sup_mask.shape[0] == 1:
+                    sup_mask = np.squeeze(sup_mask, axis=0)
+                axes[1, r].imshow(sup_img_np)
+                axes[1, r].imshow(sup_mask, cmap='Reds', alpha=0.5)
+                axes[1, r].set_title(f'Rater {r}: Support Label')
+                axes[1, r].axis('off')
+            except Exception:
+                axes[1, r].text(0.5, 0.5, 'No support label', horizontalalignment='center')
+                axes[1, r].axis('off')
+        else:
+            axes[0, r].text(0.5, 0.5, 'No support image', horizontalalignment='center')
+            axes[0, r].axis('off')
+            axes[1, r].axis('off')
+
+        # Query image
+        axes[2, r].imshow(query_img_np)
+        axes[2, r].set_title(f'Rater {r}: Query Image')
+        axes[2, r].axis('off')
+
+        # Query prediction: take argmax over channels
+        try:
+            pred_mask = query_pred_reshaped[r, q_idx].argmax(0).detach().cpu().numpy()
+            if pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+                pred_mask = np.squeeze(pred_mask, axis=0)
+            axes[3, r].imshow(query_img_np)
+            axes[3, r].imshow(pred_mask, cmap='bwr', alpha=0.5)
+            axes[3, r].set_title(f'Rater {r}: Query Pred')
+            axes[3, r].axis('off')
+        except Exception:
+            axes[3, r].text(0.5, 0.5, 'No pred', horizontalalignment='center')
+            axes[3, r].axis('off')
+
+        # Query label for this rater
+        try:
+            q_label = query_labels[q_idx][r]
+            if isinstance(q_label, torch.Tensor):
+                q_label = q_label.detach().cpu().numpy()
+            if q_label.ndim == 3 and q_label.shape[0] == 1:
+                q_label = np.squeeze(q_label, axis=0)
+            axes[4, r].imshow(query_img_np)
+            axes[4, r].imshow(q_label, cmap='Reds', alpha=0.5)
+            axes[4, r].set_title(f'Rater {r}: Query Label')
+            axes[4, r].axis('off')
+            # Annotate Dice: self vs max other, personalization, identical preds
+            try:
+                self_dice = dice_matrix[r, r]
+                if num_raters > 1:
+                    others = np.delete(dice_matrix[r], r)
+                    max_other = float(np.max(others))
+                else:
+                    max_other = 0.0
+                is_personalized = bool(personalized[r])
+                identical_list = pred_identical.get(r, [])
+                identical_str = ','.join(str(x) for x in identical_list) if identical_list else 'None'
+                text = f'self: {self_dice:.3f}\nmax_other: {max_other:.3f}\npersonalized: {is_personalized}\nidentical_preds: {identical_str}'
+                axes[4, r].text(0.5, -0.18, text, transform=axes[4, r].transAxes, ha='center', va='top')
+            except Exception:
+                pass
+        except Exception:
+            axes[4, r].text(0.5, 0.5, 'No label', horizontalalignment='center')
+            axes[4, r].axis('off')
+
+    plt.tight_layout()
+    save_path = os.path.join(f'{_run.observers[0].dir}/snapshots', f'viz_pred_{i_iter}.png')
+    fig.savefig(save_path)
+    plt.close(fig)
+    _log.info(f'Saved prediction visualization at iteration {i_iter}')
 
 @ex.automain
 def main(_run, _config, _log):
@@ -45,7 +257,7 @@ def main(_run, _config, _log):
     torch.set_num_threads(1)
 
     _log.info('###### Create model ######')
-    model = FewShotSeg(pretrained_path=None, cfg=_config['model'])
+    model = FewShotSeg(pretrained_path=_config["reload_model_path"], cfg=_config['model'])
 
     model = model.cuda()
     model.train()
@@ -151,34 +363,8 @@ def main(_run, _config, _log):
                            for query_rater_labels in sample_batched['query_labels']]
 
             # Visualize multi-rater data every N iterations
-            if (i_iter - 1) % (_config['print_interval'] * 5) == 0:
-                try:
-                    # Prepare data for visualization (extract from batch)
-                    # support_images is [way[shot0, shot1, ...]]
-                    support_imgs_for_viz = support_images[0]  # Extract shots from way 0
-                    
-                    # Convert to CPU and prepare for viz
-                    support_imgs_cpu = [img.detach().cpu() for img in support_imgs_for_viz]
-                    support_masks_cpu = [[{k: v.detach().cpu() for k, v in mask_dict.items()} 
-                                         for mask_dict in shot_masks] 
-                                        for shot_masks in sample_batched['support_masks']]
-                    query_imgs_cpu = [img.detach().cpu() for img in query_images]
-                    # query_labels_cpu: n_queries x raters x [H x W]
-                    query_labels_cpu = [[label.detach().cpu() for label in query_rater_labels] 
-                                        for query_rater_labels in sample_batched['query_labels']]
-                    
-                    # Create visualization
-                    viz_image = visualize_multi_rater(
-                        support_imgs_cpu,
-                        support_masks_cpu,
-                        query_imgs_cpu,
-                        query_labels_cpu,
-                        save_path=os.path.join(f'{_run.observers[0].dir}/snapshots', f'viz_{i_iter + 1}.png')
-                    )
-                    _log.info(f'Saved visualization at iteration {i_iter + 1}')
-                except Exception as e:
-                    _log.warning(f'Visualization failed at iteration {i_iter + 1}: {e}')
-            # END visualization block
+            # if (i_iter - 1) % (_config['save_snapshot_every']) == 0:
+            #     visualize_batch(sample_batched, query_images, query_labels, i_iter, _run, _log)
 
             optimizer.zero_grad()
             # FIXME: in the model definition, filter out the failure case where pseudolabel falls outside of image or too small to calculate a prototype
@@ -190,11 +376,51 @@ def main(_run, _config, _log):
                 print("Error:", e)
                 traceback.print_exc()
                 continue
+            # breakpoint()
+            
+            # query_pred shape: [Raters*N, 2, H, W]
+            # query_labels shape: n_queries x raters x [H x W]
+            # Reshape query_pred to [Raters, N, 2, H, W]
+            num_raters = len(query_labels[0]) if query_labels else 1
+            num_queries = len(query_labels)
+            query_pred_reshaped = query_pred.view(num_raters, num_queries, *query_pred.shape[1:])
 
-            query_loss = criterion(query_pred, query_labels)
+            # Visualize predictions and labels every N iterations
+            if (i_iter - 1) % 1000 == 0:
+                try:
+                    visualize_pred_and_label(
+                        support_images,
+                        sample_batched['support_masks'],
+                        query_images,
+                        query_pred_reshaped,
+                        query_labels,
+                        i_iter,
+                        _run,
+                        _log,
+                    )
+                except Exception as e:
+                    _log.warning(f'Pred visualization failed at iteration {i_iter}: {e}')
+            
+            # Compute loss for each rater and average
+            query_loss = 0
+            for rater_idx in range(num_raters):
+                # Get predictions for this rater
+                pred_rater = query_pred_reshaped[rater_idx]  # [N, 2, H, W]
+                
+                # Get labels for this rater
+                labels_rater = torch.stack([query_labels[q_idx][rater_idx] for q_idx in range(num_queries)], dim=0)  # [N, H, W]
+                
+                # Squeeze batch dimension if B=1
+                if labels_rater.dim() == 4:
+                    labels_rater = labels_rater.squeeze(1)  # [N, H, W]
+                
+                # Compute cross-entropy loss
+                loss_rater = criterion(pred_rater, labels_rater)
+                query_loss += loss_rater
+            
+            query_loss = query_loss / num_raters  # Average loss across raters
 
             loss = query_loss + align_loss
-
         
             loss.backward()
             optimizer.step()

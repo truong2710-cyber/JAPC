@@ -424,15 +424,15 @@ class SuperpixelDataset(BaseDataset):
 
         # Generate rater styles on-the-fly AFTER binarization for superpixel data
         if self.use_gt == False:
-            # Generate N rater styles
-            rater_styles = self.generate_rater_styles(n_raters=3)
+            # Generate N-1 rater styles (N-1 because rater 0 is the original)
+            rater_styles = self.generate_rater_styles(n_raters=2)  # Generate 2 styles for raters 1, 2
             
             # Apply styles to generate multiple rater versions from the binarized mask
             labels_t_augmented = {}
             if 0 in labels_t:  # Original binarized mask is stored with rater_id=0
                 labels_t_augmented[0] = labels_t[0]  # Keep original as rater 0
                 
-                for rater_id, style in enumerate(rater_styles[1:], 1):  # Apply styles to raters 1, 2, ...
+                for rater_id, style in enumerate(rater_styles, 1):  # Apply styles to raters 1, 2, ...
                     lb = labels_t[0].clone() if hasattr(labels_t[0], 'clone') else labels_t[0].copy()
                     
                     # Convert to numpy for morphological operations
@@ -459,7 +459,7 @@ class SuperpixelDataset(BaseDataset):
                     # print(f"[DEBUG] Rater {rater_id} - After style {style}, label max: {lb_augmented.max()}")
             
             labels_t = labels_t_augmented
-            available_rater_ids = list(range(len(rater_styles)))
+            available_rater_ids = list(range(len(rater_styles) + 1))  # +1 for the original (rater 0)
             curr_dict["available_rater_ids"] = available_rater_ids
 
         pair_buffer = []
