@@ -6,6 +6,7 @@ import os
 import shutil
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import MultiStepLR
@@ -137,13 +138,17 @@ def visualize_pred_and_label(support_images, support_masks, query_images, query_
                 dice = 2.0 * inter / (psum + gsum + 1e-6)
             dice_matrix[i, j] = dice
 
-    # Check personalization: whether pred for rater i matches its own label better than any other label
+    # Check personalization: column-wise — whether pred i matches label i
+    # at least as well as any other pred for that same label (allow ties)
     personalized = np.zeros(num_raters, dtype=bool)
     for i in range(num_raters):
         self_d = dice_matrix[i, i]
-        others = np.delete(dice_matrix[i], i) if num_raters > 1 else np.array([0.0])
-        max_other = float(np.max(others)) if others.size > 0 else 0.0
-        personalized[i] = self_d > max_other
+        if num_raters > 1:
+            # look down column i, exclude diagonal entry at row i
+            max_other = float(np.max(np.delete(dice_matrix[:, i], i)))
+        else:
+            max_other = 0.0
+        personalized[i] = self_d >= max_other
 
     # Check if predictions across raters are identical (binary masks)
     pred_identical = {i: [] for i in range(num_raters)}
@@ -217,7 +222,7 @@ def visualize_pred_and_label(support_images, support_masks, query_images, query_
             try:
                 self_dice = dice_matrix[r, r]
                 if num_raters > 1:
-                    others = np.delete(dice_matrix[r], r)
+                    others = np.delete(dice_matrix[:, r], r)
                     max_other = float(np.max(others))
                 else:
                     max_other = 0.0
@@ -237,6 +242,130 @@ def visualize_pred_and_label(support_images, support_masks, query_images, query_
     fig.savefig(save_path)
     plt.close(fig)
     _log.info(f'Saved prediction visualization at iteration {i_iter}')
+
+
+def compute_query_loss(query_pred_reshaped, query_labels, criterion):
+    """Compute cross-entropy query loss averaged over raters.
+
+    Args:
+        query_pred_reshaped: Tensor [R, N, C, H, W]
+        query_labels: list of length N, each a list of R label tensors [H, W] or [1, H, W]
+        criterion: loss function (CrossEntropyLoss)
+
+    Returns:
+        scalar tensor loss
+    """
+    num_raters = query_pred_reshaped.shape[0]
+    num_queries = query_pred_reshaped.shape[1]
+    query_loss = 0.0
+    for rater_idx in range(num_raters):
+        pred_rater = query_pred_reshaped[rater_idx]  # [N, C, H, W]
+        # collect labels for this rater into tensor [N, H, W]
+        labels_rater = torch.stack([query_labels[q_idx][rater_idx] for q_idx in range(num_queries)], dim=0)
+        if labels_rater.dim() == 4:
+            labels_rater = labels_rater.squeeze(1)
+        loss_rater = criterion(pred_rater, labels_rater)
+        query_loss += loss_rater
+    return query_loss
+
+
+def compute_bound_loss(query_pred_reshaped, query_labels, eps=1e-6):
+    """Compute bound loss: Dice on intersection + Dice on union between preds and labels.
+
+    Uses soft probabilities for predictions to remain differentiable:
+      - intersection_pred = prod_r p_r
+      - union_pred = 1 - prod_r (1 - p_r)
+
+    For labels (binary) we compute exact intersection (all raters) and union (any rater).
+
+    Args:
+        query_pred_reshaped: Tensor [R, N, 2, H, W]
+        query_labels: list length N of lists length R of label tensors
+
+    Returns:
+        scalar tensor loss (averaged over queries)
+    """
+    R, N, C, H, W = query_pred_reshaped.shape
+
+    for q in range(N):
+        # build predicted foreground probabilities per rater: [R, H, W]
+        p_list = []
+        for r in range(R):
+            logits = query_pred_reshaped[r, q]  # [2, H, W]
+            probs = F.softmax(logits, dim=0)
+            p_fg = probs[1]
+            p_list.append(p_fg)
+        preds_stack = torch.stack(p_list, dim=0)  # [R, H, W]
+
+        # intersection_pred and union_pred (soft)
+        inter_pred = torch.prod(preds_stack, dim=0)
+        union_pred = 1.0 - torch.prod(1.0 - preds_stack, dim=0)
+
+        # build label stack [R, H, W]
+        lbls = []
+        for r in range(R):
+            lbl = query_labels[q][r]
+            if lbl.dim() == 3 and lbl.shape[0] > 1:
+                lbl = lbl.argmax(0)
+            if lbl.dim() == 3 and lbl.shape[0] == 1:
+                lbl = lbl.squeeze(0)
+            lbl = lbl.float()
+            lbls.append(lbl)
+        labels_stack = torch.stack(lbls, dim=0)
+
+        inter_lbl = torch.prod(labels_stack, dim=0)
+        union_lbl = (labels_stack.sum(dim=0) > 0).float()
+
+        # Dice losses
+        def dice_loss(pred_map, target_map):
+            inter = (pred_map * target_map).sum()
+            sums = pred_map.sum() + target_map.sum()
+            # if both empty, treat as zero loss
+            if sums.item() == 0:
+                return torch.tensor(0.0, device=pred_map.device)
+            dice = (2.0 * inter + eps) / (sums + eps)
+            return 1.0 - dice
+
+        loss_inter = dice_loss(inter_pred, inter_lbl)
+        loss_union = dice_loss(union_pred, union_lbl)
+        total_loss = loss_inter + loss_union
+
+    return total_loss / float(N)
+
+
+def freeze_encoder(model, freeze_bn=True, keep_bn_affine=False):
+    """Freeze encoder parameters and optionally control BatchNorm behavior.
+
+    Args:
+        model: model instance with `encoder` attribute (e.g., `FewShotSeg`)
+        freeze_bn: if True, put encoder in `eval()` mode to disable BN running stat updates
+        keep_bn_affine: if True, keep BN affine parameters (`weight`/`bias`) trainable
+
+    Effects:
+        - sets `requires_grad = False` for all `model.encoder` parameters
+        - if `keep_bn_affine`, re-enables `requires_grad=True` for BN affine params and sets encoder to `train()`
+        - otherwise, if `freeze_bn` is True, sets encoder to `eval()` to freeze BN stats
+    """
+    # disable grads for all encoder parameters
+    if not hasattr(model, 'encoder'):
+        return
+    for p in model.encoder.parameters():
+        p.requires_grad = False
+
+    # handle BatchNorm params
+    if keep_bn_affine:
+        for m in model.encoder.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                if getattr(m, 'weight', None) is not None:
+                    m.weight.requires_grad = True
+                if getattr(m, 'bias', None) is not None:
+                    m.bias.requires_grad = True
+        # keep BN in train mode so affine params and running stats can update
+        model.encoder.train()
+    else:
+        if freeze_bn:
+            model.encoder.eval()
+
 
 @ex.automain
 def main(_run, _config, _log):
@@ -261,6 +390,8 @@ def main(_run, _config, _log):
 
     model = model.cuda()
     model.train()
+    if _config['freeze_encoder']:
+        freeze_encoder(model)
 
     _log.info('###### Load data ######')
     ### Training set
@@ -314,7 +445,10 @@ def main(_run, _config, _log):
     param_group = []
     for k,v in model.named_parameters():
         if 'cls_unit' in k:
-            param_group +=[{'params':v,'lr':_config['optim']['lr']*0.0001,'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
+            if 'residual_mlp' in k:
+                param_group +=[{'params':v,'lr':_config['optim']['lr'],'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
+            else:
+                param_group +=[{'params':v,'lr':_config['optim']['lr']*0.0001,'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
         else :
             param_group +=[{'params':v,'lr':_config['optim']['lr'],'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
     _log.info('###### Set optimizer ######')
@@ -335,7 +469,7 @@ def main(_run, _config, _log):
     n_sub_epoches = _config['n_steps'] // _config['max_iters_per_load'] # number of times for reloading
 
 
-    log_loss = {'loss': 0, 'align_loss': 0}
+    log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0}
 
     _log.info('###### Training ######')
     for sub_epoch in range(n_sub_epoches):
@@ -401,49 +535,45 @@ def main(_run, _config, _log):
                 except Exception as e:
                     _log.warning(f'Pred visualization failed at iteration {i_iter}: {e}')
             
-            # Compute loss for each rater and average
-            query_loss = 0
-            for rater_idx in range(num_raters):
-                # Get predictions for this rater
-                pred_rater = query_pred_reshaped[rater_idx]  # [N, 2, H, W]
-                
-                # Get labels for this rater
-                labels_rater = torch.stack([query_labels[q_idx][rater_idx] for q_idx in range(num_queries)], dim=0)  # [N, H, W]
-                
-                # Squeeze batch dimension if B=1
-                if labels_rater.dim() == 4:
-                    labels_rater = labels_rater.squeeze(1)  # [N, H, W]
-                
-                # Compute cross-entropy loss
-                loss_rater = criterion(pred_rater, labels_rater)
-                query_loss += loss_rater
-            
-            query_loss = query_loss / num_raters  # Average loss across raters
+            # Compute query cross-entropy loss (averaged across raters)
+            query_loss = compute_query_loss(query_pred_reshaped, query_labels, criterion)
 
-            loss = query_loss + align_loss
+            if _config['use_bound']:
+                # Compute bound loss (Dice on intersection + Dice on union)
+                b_loss = compute_bound_loss(query_pred_reshaped, query_labels)
+            else:
+                b_loss = 0.0
+
+            # Total loss = query CE + alignment loss + bound loss
+            loss = query_loss + align_loss + b_loss
         
             loss.backward()
             optimizer.step()
             scheduler.step()
             # Log loss
-            query_loss = query_loss.detach().data.cpu().numpy()
-            align_loss = align_loss.detach().data.cpu().numpy() if align_loss != 0 else 0
+            q_loss_val = query_loss.detach().cpu().numpy()
+            align_loss_val = align_loss.detach().cpu().numpy() if isinstance(align_loss, torch.Tensor) else align_loss
+            b_loss_val = b_loss.detach().cpu().numpy() if isinstance(b_loss, torch.Tensor) else 0
 
-            _run.log_scalar('loss', query_loss)
-            _run.log_scalar('align_loss', align_loss) 
-            log_loss['loss'] += query_loss
-            log_loss['align_loss'] += align_loss
+            _run.log_scalar('loss', float(q_loss_val))
+            _run.log_scalar('align_loss', float(align_loss_val))
+            _run.log_scalar('bound_loss', float(b_loss_val))
+            log_loss['loss'] += float(q_loss_val)
+            log_loss['align_loss'] += float(align_loss_val)
+            log_loss['bound_loss'] += float(b_loss_val)
 
             # print loss and take snapshots
             if (i_iter + 1) % _config['print_interval'] == 0:
 
                 loss = log_loss['loss'] / _config['print_interval']
                 align_loss = log_loss['align_loss'] / _config['print_interval']
+                bound_loss = log_loss['bound_loss'] / _config['print_interval']
 
                 log_loss['loss'] = 0
                 log_loss['align_loss'] = 0
+                log_loss['bound_loss'] = 0
 
-                print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss},')
+                print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, bound_loss: {bound_loss},')
 
             if (i_iter + 1) % _config['save_snapshot_every'] == 0:
                 _log.info('###### Taking snapshot ######')

@@ -39,7 +39,7 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 20000 # 100100
+    n_steps = 50000 # 100100
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
@@ -55,6 +55,8 @@ def cfg():
     exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
+    use_bound = True
+    freeze_encoder = False # whether to freeze the backbone encoder during training
 
     ### Validation
     z_margin = 0 

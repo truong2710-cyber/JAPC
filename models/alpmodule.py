@@ -26,7 +26,8 @@ class MultiProtoAsConv(nn.Module):
         kernel_size = [ ft_l // grid_l for ft_l, grid_l in zip(feature_hw, proto_grid)  ]
         self.avg_pool_op = nn.AvgPool2d( kernel_size ) # kernel_size
         self.a = 0.2 # α  $---set1:[ABD: α = 0.3] // [CMR: α = 0.2]  ---$   $---set2:[ABD: α = 0.2] ---$
-        self.get_residual_mlp()
+        self.residual_mlp_fg = self.get_residual_mlp()
+        self.residual_mlp_bg = self.get_residual_mlp()
 
     def get_residual_mlp(self):
         """
@@ -38,13 +39,15 @@ class MultiProtoAsConv(nn.Module):
         proto_dim = 256
         hidden_dim = 256
         
-        self.residual_mlp = nn.Sequential(
+        residual_mlp = nn.Sequential(
             nn.Linear(proto_dim * 2, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, proto_dim)
         )
+
+        return residual_mlp
 
     def get_wight(self):
         # """
@@ -62,7 +65,7 @@ class MultiProtoAsConv(nn.Module):
         self.cal = nn.Parameter(cal)
 
         
-    def forward(self, mol, qry, sup_x, sup_y,s_init_seed, mode, thresh, isval = False, val_wsize = None, vis_sim = False, **kwargs):
+    def forward(self, mol, qry, sup_x, sup_y, s_init_seed, mode, thresh, isval = False, val_wsize = None, vis_sim = False, **kwargs):
         """
         Now supports
         Args:
@@ -102,23 +105,26 @@ class MultiProtoAsConv(nn.Module):
         p0 = self.get_proto(mode, mol, qry, sup_x, consensus_mask, s_init_seed, thresh, isval, val_wsize) # [n_proto, C]
         p0 = torch.mean(p0, dim=0, keepdim=True)  # [1, C]
 
-        # apply residual_mlp to compute calibrated prototypes per rater, if available
-        calibrated_protos = None
-        if hasattr(self, 'residual_mlp') and self.residual_mlp is not None:
-            p0_rep = p0.expand(per_rater_protos.size(0), -1)  # [total_proto, C]
-            delta = per_rater_protos - p0_rep  # [total_proto, C]
-            mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
-            calibrated_delta = self.residual_mlp(mlp_input)  # [total_proto, C]
-            calibrated_protos = p0_rep + calibrated_delta  # [total_proto, C]
-            # split calibrated_protos back into per-rater lists using recorded starts/counts
-            per_rater_calibrated = []
-            idx = 0
-            for count in per_rater_counts:
-                if count <= 0:
-                    per_rater_calibrated.append(torch.empty(0, calibrated_protos.size(1), device=calibrated_protos.device))
-                else:
-                    per_rater_calibrated.append(calibrated_protos[idx: idx + count])
-                idx += count
+        # apply residual_mlp to compute calibrated prototypes per rater
+        if mode in ['mask', 'gridconv+']:
+            residual_mlp = self.residual_mlp_fg # foreground prototype calibration
+        else:
+            residual_mlp = self.residual_mlp_bg # background prototype calibration
+
+        p0_rep = p0.expand(per_rater_protos.size(0), -1)  # [total_proto, C]
+        delta = per_rater_protos - p0_rep  # [total_proto, C]
+        mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
+        calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
+        calibrated_protos = p0_rep + calibrated_delta  # [total_proto, C]
+        # split calibrated_protos back into per-rater lists using recorded starts/counts
+        per_rater_calibrated = []
+        idx = 0
+        for count in per_rater_counts:
+            if count <= 0:
+                per_rater_calibrated.append(torch.empty(0, calibrated_protos.size(1), device=calibrated_protos.device))
+            else:
+                per_rater_calibrated.append(calibrated_protos[idx: idx + count])
+            idx += count
         
         if mode == 'mask': # class-level prototype only
             qry_n = self.safe_norm(qry)
