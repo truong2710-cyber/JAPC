@@ -37,25 +37,6 @@ class FewShotSeg(nn.Module):
         self.config = cfg or {'align': False}
         self.get_encoder(in_channels)
         self.get_cls()
-        self.get_residual_mlp()
-    
-    def get_residual_mlp(self):
-        """
-        Build MLP for learning residual prototypes for rater personalization.
-        Takes [p0, p_i - p0] and outputs residual p~_i of same dimension as p_i.
-        """
-        # Assuming prototype dimension from encoder output
-        # DeepLab ResNet101 outputs 256 channels
-        proto_dim = 256
-        hidden_dim = 256
-        
-        self.residual_mlp = nn.Sequential(
-            nn.Linear(proto_dim * 2, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, proto_dim)
-        )
 
     def get_encoder(self, in_channels):
         # if self.config['which_model'] == 'deeplab_res101':
@@ -70,7 +51,6 @@ class FewShotSeg(nn.Module):
             check = torch.load(self.pretrained_path)
             self.load_state_dict(torch.load(self.pretrained_path),False)
             print(f'###### Pre-trained model f{self.pretrained_path} has been loaded ######')
-
 
     def get_cls(self):
         """
@@ -99,26 +79,6 @@ class FewShotSeg(nn.Module):
         avg_mask = stacked.mean(dim=0)  # [H, W]
         consensus = (avg_mask > 0.5).float()  # Binary mask
         return consensus
-    
-    def extract_prototype(self, supp_fts, mask):
-        """
-        Extract prototype by masking and averaging support features.
-        
-        Args:
-            supp_fts: Support features [C x H' x W']
-            mask: Binary mask [H' x W']
-        
-        Returns:
-            prototype: Feature vector [C]
-        """
-        # Mask the features and compute masked average
-        mask_expanded = mask.unsqueeze(0)  # [1, H', W']
-        masked_fts = supp_fts * mask_expanded  # [C, H', W']
-        
-        # Average pool with mask
-        proto = masked_fts.sum(dim=(1, 2)) / (mask_expanded.sum() + 1e-8)  # [C]
-        return proto
-
 
     def forward(self, supp_imgs, fore_mask, back_mask, qry_imgs, isval, val_wsize, show_viz = False):
         """
@@ -214,14 +174,14 @@ class FewShotSeg(nn.Module):
             # Call classifier once, passing all raters' masks; classifier will perform per-rater prototype calibration
             _raw_scores_bg, assign_bg, aux_bg = self.cls_unit(mol, qry_fts, supp_fts, back_mask_resized, s_init_seed,
                                                               mode=BG_PROT_MODE, thresh=BG_THRESH, isval=isval,
-                                                              val_wsize=val_wsize, vis_sim=show_viz, residual_mlp=self.residual_mlp)
+                                                              val_wsize=val_wsize, vis_sim=show_viz)
             _raw_scores_fg, assign_fg, aux_fg = self.cls_unit(mol, qry_fts, supp_fts, fore_mask_resized, s_init_seed,
                                                               mode=FG_PROT_MODE if F.avg_pool2d(fore_mask_consensus, 4).max() >= FG_THRESH else 'mask',
-                                                              thresh=FG_THRESH, isval=isval, val_wsize=val_wsize, vis_sim=show_viz, residual_mlp=self.residual_mlp)
+                                                              thresh=FG_THRESH, isval=isval, val_wsize=val_wsize, vis_sim=show_viz)
 
-            # _raw_scores_* expected shape: Raters x N x 1 x H' x W'
+            # _raw_scores_* expected shape: R x 1 x H' x W'
             # combine bg and fg per rater along class dim
-            scores_all = torch.cat([_raw_scores_bg, _raw_scores_fg], dim=2)  # R x N x 2 x H' x W'
+            scores_all = torch.cat([_raw_scores_bg, _raw_scores_fg], dim=1)  # R x 2 x H' x W'
 
             # collect assign and sim maps if provided
             if assign_bg is not None:
@@ -232,24 +192,25 @@ class FewShotSeg(nn.Module):
 
             # interpolate each rater's score to image size and append to outputs
             for rater_idx in range(scores_all.shape[0]):
-                pred_rater = F.interpolate(scores_all[rater_idx], size=img_size, mode='bilinear')
+                pred_rater = F.interpolate(scores_all[rater_idx].unsqueeze(0), size=img_size, mode='bilinear')
                 outputs.append(pred_rater)
 
             if self.config.get('align', False) and self.training:
                 # average predictions across raters for alignment loss (consensus)
-                pred = scores_all.mean(dim=0)  # N x 2 x H' x W'
-                pred_int = F.interpolate(pred, size=img_size, mode='bilinear')
+                pred = scores_all.mean(dim=0)  # 2 x H' x W'
+                pred_int = F.interpolate(pred.unsqueeze(0), size=img_size, mode='bilinear')
                 align_loss_epi = self.alignLoss_multi_rater(qry_fts, pred, pred_int, supp_fts,
                                                            fore_mask_consensus, back_mask_consensus,
                                                            fore_mask_resized, back_mask_resized)
                 align_loss += align_loss_epi
              
 
-        output = torch.stack(outputs, dim=1)  # N x Raters x 2 x H x W
-        output = output.view(-1, *output.shape[2:])
+        output = torch.stack(outputs, dim=1)  # R x 1 x 2 x H x W
+        output = output.view(-1, *output.shape[2:]) # R x 2 x H x W
 
         if len(assign_maps) > 0 and assign_maps[0] is not None:
-            assign_maps = torch.stack(assign_maps, dim=1)
+            # list of 1 x H' x W' -> stack to R x 1 x H' x W'
+            assign_maps = torch.stack(assign_maps[0], dim=0)
         else:
             assign_maps = None
 
