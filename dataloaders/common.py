@@ -230,7 +230,18 @@ class ValidationDataset(Dataset):
             raise Exception("Please initialize current class first")
 
         sample = self.dataset[idx]
-        sample["label"] = self.label_strip( sample["label"] )
+        # Support multi-rater samples: dataset may return 'labels' dict of rater_id->tensor
+        if "labels" in sample and isinstance(sample["labels"], dict) and len(sample["labels"]) > 0:
+            # stack all raters into a tensor with shape [R, H, W]
+            keys = sorted(sample["labels"].keys())
+            ref_label = torch.stack([sample["labels"][k] for k in keys], dim=0)
+        else:
+            ref_label = sample.get("label", None)
+
+        if ref_label is None:
+            raise KeyError("No label found in sample for validation")
+
+        sample["label"] = self.label_strip(ref_label)
         sample["label_t"] = sample["label"].unsqueeze(-1).data.numpy()
 
         labelname = self.dataset.all_label_names[self.__curr_cls]

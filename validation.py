@@ -137,14 +137,17 @@ def main(_run, _config, _log):
             te_dataset.set_curr_cls(curr_lb)
             support_batched = te_parent.get_support(curr_class = curr_lb, class_idx = [curr_lb], scan_idx = _config["support_idx"], npart=_config['task']['npart'])
 
-            # way(1 for now) x part x shot x 3 x H x W] #
+            # way(1 for now) x part x [shot x 3 x H x W] #
             support_images = [[shot.cuda() for shot in way]
                                 for way in support_batched['support_images']] # way x part x [shot x C x H x W]
-            suffix = 'mask'
-            support_fg_mask = [[shot[f'fg_{suffix}'].float().cuda() for shot in way]
-                                for way in support_batched['support_mask']]
-            support_bg_mask = [[shot[f'bg_{suffix}'].float().cuda() for shot in way]
-                                for way in support_batched['support_mask']]
+
+            # support_batched['support_mask'] structure: way x parts x shots x raters x {fg_mask: [H x W], bg_mask: [H x W]}
+            support_fg_mask = [[[[rater_mask['fg_mask'].float().cuda() for rater_mask in shot_masks]
+                                for shot_masks in part] for part in way]
+                               for way in support_batched['support_mask']] # way x parts x shots x raters x [H x W]
+            support_bg_mask = [[[[rater_mask['bg_mask'].float().cuda() for rater_mask in shot_masks]
+                                for shot_masks in part] for part in way]
+                               for way in support_batched['support_mask']] # way x parts x shots x raters x [H x W]
 
             curr_scan_count = -1 # counting for current scan
             _lb_buffer = {} # indexed by scan
@@ -170,16 +173,21 @@ def main(_run, _config, _log):
                 query_labels = torch.cat([ sample_batched['label'].cuda()], dim=0)
                 idx = sample_batched['idx'][0]
 
-                # [way, [part, [shot x C x H x W]]] ->
-                sup_img_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_images[0][q_part]]]   # way(1) x shot x [B(1) x C x H x W]
-                sup_fgm_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_fg_mask[0][q_part]]]
-                sup_bgm_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_bg_mask[0][q_part]]]
+                # Build per-shot per-rater tensors and unsqueeze batch dim
+                # way(1) x shot(1) x [batch(1) x C x H x W]
+                sup_img_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_images[0][q_part]]]
+                # way(1) x shot(1) x R x [batch(1) x H x W]
+                sup_fgm_part = [[[rater_tensor.unsqueeze(0) for rater_tensor in shot_raters]
+                                  for shot_raters in support_fg_mask[0][q_part]]]
+                # way(1) x shot(1) x R x [batch(1) x H x W]
+                sup_bgm_part = [[[rater_tensor.unsqueeze(0) for rater_tensor in shot_raters]
+                                  for shot_raters in support_bg_mask[0][q_part]]]
 
                 query_pred, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
                 query_pred_bg = np.array(query_pred.argmin(dim=1)[0].cpu())
                 query_pred = np.array(query_pred.argmax(dim=1)[0].cpu())
                 _pred[..., ii] = query_pred.copy()
-                
+                breakpoint()
                 if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']):
                     mar_val_metric_node.record(query_pred, np.array(query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count) 
                 else:

@@ -63,7 +63,9 @@ class FewShotSeg(nn.Module):
             self.cls_unit = MultiProtoAsConv(proto_grid = [proto_hw, proto_hw], feature_hw =  self.config["feature_hw"]) # when treating it as ordinary prototype
         else:
             raise NotImplementedError(f'Classifier {self.config["cls_name"]} not implemented')
-    
+        # TODO: add loading of pretrained weights for classifier if any
+
+
     def compute_consensus_mask(self, rater_masks):
         """
         Compute consensus mask by averaging across raters and thresholding at 0.5.

@@ -121,10 +121,19 @@ class ManualAnnoDataset(BaseDataset):
             curr_dict = {}
 
             _img_fid = os.path.join(self.base_dir, f'image_{curr_id}.nii.gz')
-            _lb_fid  = os.path.join(self.base_dir, f'label_{curr_id}_1.nii.gz')
+            # find all rater label files for this scan: label_{curr_id}_{rater_id}.nii.gz
+            label_pattern = os.path.join(self.base_dir, f'label_{curr_id}_*.nii.gz')
+            label_files = sorted(glob.glob(label_pattern))
+            _lb_fids_dict = {}
+            for lb_fid in label_files:
+                m = re.findall(r'label_\d+_(\d+)\.nii\.gz', lb_fid)
+                if len(m) == 0:
+                    continue
+                rater_id = int(m[0])
+                _lb_fids_dict[rater_id] = lb_fid
 
             curr_dict["img_fid"] = _img_fid
-            curr_dict["lbs_fid"] = _lb_fid
+            curr_dict["lbs_fids"] = _lb_fids_dict
             out_list[str(curr_id)] = curr_dict
         return out_list
 
@@ -153,20 +162,31 @@ class ManualAnnoDataset(BaseDataset):
 
             self.scan_z_idx[scan_id] = [-1 for _ in range(img.shape[-1])]
 
-            lb = read_nii_bysitk(itm["lbs_fid"])
-            lb = lb.transpose(1,2,0)
+            # Load all available labels for this scan (may be multiple raters)
+            lbs_dict = {}
+            for rater_id, lb_fid in itm.get("lbs_fids", {}).items():
+                if os.path.exists(lb_fid):
+                    lb = read_nii_bysitk(lb_fid)
+                    lb = lb.transpose(1,2,0)
+                    lb = np.int32(lb)
+                    lb = lb[:256, :256, :]
+                    lbs_dict[rater_id] = lb
 
-            lb = np.float32(lb)
+            # if no labels found, skip this scan
+            if len(lbs_dict) == 0:
+                print(f"Warning: No valid labels found for scan {scan_id}, skipping")
+                continue
 
-            img = img[:256, :256, :] # FIXME a bug in shape from the pre-processing code
-            lb = lb[:256, :256, :]
+            img = img[:256, :256, :]
+            # use first available label for shape validation
+            lb = lbs_dict[list(lbs_dict.keys())[0]]
 
             assert img.shape[-1] == lb.shape[-1]
             base_idx = img.shape[-1] // 2 # index of the middle slice
 
             # write the beginning frame
             out_list.append( {"img": img[..., 0: 1],
-                           "lb":lb[..., 0: 0 + 1],
+                           "lbs":{rater_id: lb_single[..., 0: 0 + 1] for rater_id, lb_single in lbs_dict.items()},
                            "is_start": True,
                            "is_end": False,
                            "nframe": img.shape[-1],
@@ -178,7 +198,7 @@ class ManualAnnoDataset(BaseDataset):
 
             for ii in range(1, img.shape[-1] - 1):
                 out_list.append( {"img": img[..., ii: ii + 1],
-                           "lb":lb[..., ii: ii + 1],
+                           "lbs":{rater_id: lb_single[..., ii: ii + 1] for rater_id, lb_single in lbs_dict.items()},
                            "is_start": False,
                            "is_end": False,
                            "nframe": -1,
@@ -190,7 +210,7 @@ class ManualAnnoDataset(BaseDataset):
 
             ii += 1 # last frame, note the is_end flag
             out_list.append( {"img": img[..., ii: ii + 1],
-                           "lb":lb[..., ii: ii+ 1],
+                           "lbs":{rater_id: lb_single[..., ii: ii+ 1] for rater_id, lb_single in lbs_dict.items()},
                            "is_start": False,
                            "is_end": True,
                            "nframe": -1,
@@ -222,19 +242,43 @@ class ManualAnnoDataset(BaseDataset):
                 for _ex_cls in self.exclude_lbs:
                     if curr_dict["z_id"] in self.tp1_cls_map[self.label_name[_ex_cls]][curr_dict["scan_id"]]: # this slice need to be excluded since it contains label which is supposed to be unseen
                         return self.__getitem__(index + torch.randint(low = 0, high = self.__len__() - 1, size = (1,)))
+            # When training, apply transforms to image+each rater label with same seed
+            labels_raw = curr_dict.get('lbs', {})
+            available_rater_ids = sorted(list(labels_raw.keys()))
 
-            comp = np.concatenate( [curr_dict["img"], curr_dict["lb"]], axis = -1 )
-            img, lb = self.transforms(comp, c_img = 1, c_label = 1, nclass = self.nclass, use_onehot = False)
+            # deterministic augmentation seed per index
+            aug_seed = index % (2**31 - 1)
+            img_out = None
+            lbs_out_dict = {}
+            for rater_id in available_rater_ids:
+                torch.manual_seed(aug_seed)
+                np.random.seed(aug_seed)
+                random.seed(aug_seed)
+                comp = np.concatenate([curr_dict['img'], labels_raw[rater_id]], axis=-1)
+                img_tmp, lb_tmp = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, use_onehot=False)
+                if img_out is None:
+                    img_out = img_tmp
+                # ensure label shape HxWx1
+                lbs_out_dict[rater_id] = lb_tmp
+
+            img = img_out
+            labels_raw = lbs_out_dict
 
         else:
             img = curr_dict['img']
-            lb = curr_dict['lb']
+            labels_raw = curr_dict.get('lbs', {})
+            available_rater_ids = sorted(list(labels_raw.keys()))
 
         img = np.float32(img)
-        lb = np.float32(lb).squeeze(-1) # NOTE: to be suitable for the PANet structure
+
+        # prepare labels dict as tensors (squeezed)
+        labels_tensors = {}
+        for rater_id in available_rater_ids:
+            lab_np = labels_raw[rater_id]
+            lab_np = np.float32(lab_np).squeeze(-1)
+            labels_tensors[rater_id] = torch.from_numpy(lab_np)
 
         img = torch.from_numpy( np.transpose(img, (2, 0, 1)) )
-        lb  = torch.from_numpy( lb)
 
         if self.tile_z_dim:
             img = img.repeat( [ self.tile_z_dim, 1, 1] )
@@ -246,14 +290,14 @@ class ManualAnnoDataset(BaseDataset):
         scan_id = curr_dict["scan_id"]
         z_id    = curr_dict["z_id"]
 
-        sample = {"image": img,
-                "label":lb,
-                "is_start": is_start,
-                "is_end": is_end,
-                "nframe": nframe,
-                "scan_id": scan_id,
-                "z_id": z_id
-                }
+        sample = {"image": img, # [C,H,W]
+            "labels": labels_tensors, # {rater_id: label_tensor [H,W]}
+            "is_start": is_start,
+            "is_end": is_end,
+            "nframe": nframe,
+            "scan_id": scan_id,
+            "z_id": z_id
+            }
         # Add auxiliary attributes
         if self.aux_attrib is not None:
             for key_prefix in self.aux_attrib:
@@ -388,13 +432,17 @@ class ManualAnnoDataset(BaseDataset):
                 # almost copy-paste __getitem__ but no augmentation
                 curr_dict = self.actual_dataset[_glb_idx]
                 img = curr_dict['img']
-                lb = curr_dict['lb']
+                # load all available rater labels for this slice
+                lbs_dict = curr_dict.get('lbs', {})
 
                 img = np.float32(img)
-                lb = np.float32(lb).squeeze(-1) # NOTE: to be suitable for the PANet structure
+                # prepare label tensors dict: rater_id -> tensor [H,W]
+                labels_tensors = {}
+                for rater_id, lb_np in lbs_dict.items():
+                    lab = np.float32(lb_np).squeeze(-1)
+                    labels_tensors[rater_id] = torch.from_numpy(lab)
 
                 img = torch.from_numpy( np.transpose(img, (2, 0, 1)) )
-                lb  = torch.from_numpy( lb )
 
                 if self.tile_z_dim:
                     img = img.repeat( [ self.tile_z_dim, 1, 1] )
@@ -407,20 +455,20 @@ class ManualAnnoDataset(BaseDataset):
                 z_id        = curr_dict["z_id"]
 
                 sample = {"image": img,
-                        "label":lb,
-                        "is_start": is_start,
-                        "inst": None,
-                        "scribble": None,
-                        "is_end": is_end,
-                        "nframe": nframe,
-                        "scan_id": scan_id,
-                        "z_id": z_id
-                        }
+                    "labels": labels_tensors,
+                    "is_start": is_start,
+                    "inst": None,
+                    "scribble": None,
+                    "is_end": is_end,
+                    "nframe": nframe,
+                    "scan_id": scan_id,
+                    "z_id": z_id
+                    }
 
                 concat_buffer.append(sample)
             out_buffer.append({
                 "image": torch.stack([itm["image"] for itm in concat_buffer], dim = 0),
-                "label": torch.stack([itm["label"] for itm in concat_buffer], dim = 0),
+                "labels": [itm["labels"] for itm in concat_buffer],  # list of dicts per shot
 
                 })
 
@@ -433,7 +481,15 @@ class ManualAnnoDataset(BaseDataset):
         for itm in out_buffer:
             support_images.append(itm["image"])
             support_class.append(curr_class)
-            support_mask.append(  self.getMaskMedImg( itm["label"], curr_class, class_idx  ))
+            # build masks per support shot; each shot may have multiple raters
+            masks_for_part = []
+            for labels_dict in itm["labels"]:
+                # labels_dict: {rater_id: tensor}
+                masks_for_shot = []
+                for rater_id in sorted(labels_dict.keys()):
+                    masks_for_shot.append(self.getMaskMedImg(labels_dict[rater_id], curr_class, class_idx))
+                masks_for_part.append(masks_for_shot)
+            support_mask.append(masks_for_part)
 
         return {'class_ids': [support_class],
             'support_images': [support_images], #
