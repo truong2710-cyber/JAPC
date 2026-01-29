@@ -41,9 +41,9 @@ class Metric(object):
 
         Args:
             pred:
-                predicted mask array, expected shape is H x W 256 256
+                predicted mask array, expected shape is R x H x W 256 256
             target:
-                target mask array, expected shape is H x W 256 256
+                target mask array, expected shape is R x H x W 256 256
             labels:
                 only count specific label, used when knowing all possible labels in advance 2
         """
@@ -157,7 +157,7 @@ class Metric(object):
 
             # Compute mean IoU classwisely and average over classes
             mDice_class = 2 * tp_sum / ( 2 * tp_sum + fp_sum + fn_sum)
-            mDice = mIoU_class.mean()
+            mDice = mDice_class.mean()
 
             return mDice_class, mDice
 

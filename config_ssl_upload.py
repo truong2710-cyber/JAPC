@@ -63,7 +63,7 @@ def cfg():
     eval_fold = 0 # which fold for 5 fold cross validation
     support_idx=[-1] # indicating which scan is used as support in testing. 
     val_wsize=2 # L_H, L_W in testing
-    n_sup_part = 3 # number of chuncks in testing
+    n_sup_part = 5 # number of chuncks in testing
 
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
@@ -87,7 +87,7 @@ def cfg():
 
     task = {
         'n_ways': 1,
-        'n_shots': 3,
+        'n_shots': 1,
         'n_queries': 1,
         'npart': n_sup_part 
     }

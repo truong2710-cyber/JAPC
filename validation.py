@@ -183,11 +183,17 @@ def main(_run, _config, _log):
                 sup_bgm_part = [[[rater_tensor.unsqueeze(0) for rater_tensor in shot_raters]
                                   for shot_raters in support_bg_mask[0][q_part]]]
 
+                # R x 2 x H x W
                 query_pred, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
-                query_pred_bg = np.array(query_pred.argmin(dim=1)[0].cpu())
-                query_pred = np.array(query_pred.argmax(dim=1)[0].cpu())
-                _pred[..., ii] = query_pred.copy()
-                breakpoint()
+                # R x H x W
+                query_pred_bg = np.array(query_pred.argmin(dim=1).cpu())
+                query_pred = np.array(query_pred.argmax(dim=1).cpu())
+                consensus = np.mean(query_pred, axis=0).copy() # H x W
+                # binarize consensus
+                consensus[consensus >= 0.5] = 1
+                consensus[consensus < 0.5] = 0
+                _pred[..., ii] = consensus # save the consensus prediction to visualize
+
                 if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']):
                     mar_val_metric_node.record(query_pred, np.array(query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count) 
                 else:
