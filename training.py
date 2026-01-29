@@ -26,6 +26,10 @@ import matplotlib.pyplot as plt
 
 from config_ssl_upload import ex
 import tqdm
+try:
+    from scipy.optimize import linear_sum_assignment
+except Exception:
+    linear_sum_assignment = None
 
 # config pre-trained model caching path
 os.environ['TORCH_HOME'] = "./pretrained_model"
@@ -138,17 +142,35 @@ def visualize_pred_and_label(support_images, support_masks, query_images, query_
                 dice = 2.0 * inter / (psum + gsum + 1e-6)
             dice_matrix[i, j] = dice
 
-    # Check personalization: column-wise — whether pred i matches label i
-    # at least as well as any other pred for that same label (allow ties)
+    # Hungarian matching between prediction set and label set using Dice as similarity.
+    # We use cost = 1 - dice for linear_sum_assignment (minimize cost). If SciPy
+    # is unavailable, fall back to a greedy matching.
+    matched_label_for_pred = -np.ones(num_raters, dtype=int)
     personalized = np.zeros(num_raters, dtype=bool)
-    for i in range(num_raters):
-        self_d = dice_matrix[i, i]
-        if num_raters > 1:
-            # look down column i, exclude diagonal entry at row i
-            max_other = float(np.max(np.delete(dice_matrix[:, i], i)))
+    if num_raters > 0:
+        if linear_sum_assignment is not None:
+            cost = 1.0 - dice_matrix
+            row_ind, col_ind = linear_sum_assignment(cost)
+            for r, c in zip(row_ind, col_ind):
+                matched_label_for_pred[r] = c
         else:
-            max_other = 0.0
-        personalized[i] = self_d >= max_other
+            # greedy fallback: repeatedly pick best remaining dice
+            dm = dice_matrix.copy()
+            assigned_preds = set()
+            assigned_labels = set()
+            for _ in range(num_raters):
+                idx = dm.argmax()
+                r = int(idx // num_raters)
+                c = int(idx % num_raters)
+                if r in assigned_preds or c in assigned_labels:
+                    dm[r, c] = -1.0
+                    continue
+                matched_label_for_pred[r] = c
+                assigned_preds.add(r)
+                assigned_labels.add(c)
+                dm[r, :] = -1.0
+                dm[:, c] = -1.0
+        personalized = (matched_label_for_pred == np.arange(num_raters))
 
     # Check if predictions across raters are identical (binary masks)
     pred_identical = {i: [] for i in range(num_raters)}
@@ -220,16 +242,19 @@ def visualize_pred_and_label(support_images, support_masks, query_images, query_
             axes[4, r].axis('off')
             # Annotate Dice: self vs max other, personalization, identical preds
             try:
-                self_dice = dice_matrix[r, r]
+                # show dice against matched label (if matching available)
+                matched_label = int(matched_label_for_pred[r]) if matched_label_for_pred is not None and matched_label_for_pred[r] >= 0 else r
+                self_dice = dice_matrix[r, matched_label]
                 if num_raters > 1:
-                    others = np.delete(dice_matrix[:, r], r)
+                    others = np.delete(dice_matrix[:, matched_label], r)
                     max_other = float(np.max(others))
                 else:
                     max_other = 0.0
                 is_personalized = bool(personalized[r])
+                matched_str = f'{matched_label}'
                 identical_list = pred_identical.get(r, [])
                 identical_str = ','.join(str(x) for x in identical_list) if identical_list else 'None'
-                text = f'self: {self_dice:.3f}\nmax_other: {max_other:.3f}\npersonalized: {is_personalized}\nidentical_preds: {identical_str}'
+                text = f'matched_label: {matched_str}\ndice: {self_dice:.3f}\nmax_other: {max_other:.3f}\npersonalized: {is_personalized}\nidentical_preds: {identical_str}'
                 axes[4, r].text(0.5, -0.18, text, transform=axes[4, r].transAxes, ha='center', va='top')
             except Exception:
                 pass
