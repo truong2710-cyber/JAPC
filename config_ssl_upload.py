@@ -72,6 +72,7 @@ def cfg():
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/50000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
+    use_mlp = True # whether to use mlp for prototype calibration in ALP module
 
     # SSL
     superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
@@ -83,7 +84,8 @@ def cfg():
         'cls_name': clsname,
         'proto_grid_size' : proto_grid_size,
         'feature_hw': feature_hw,
-        'reload_model_path': reload_model_path
+        'reload_model_path': reload_model_path,
+        'use_mlp': use_mlp
     }
 
     task = {

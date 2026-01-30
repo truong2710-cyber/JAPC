@@ -291,7 +291,7 @@ def compute_query_loss(query_pred_reshaped, query_labels, criterion):
             labels_rater = labels_rater.squeeze(1)
         loss_rater = criterion(pred_rater, labels_rater)
         query_loss += loss_rater
-    return query_loss
+    return query_loss / num_raters
 
 
 def compute_bound_loss(query_pred_reshaped, query_labels, eps=1e-6):
@@ -353,7 +353,7 @@ def compute_bound_loss(query_pred_reshaped, query_labels, eps=1e-6):
 
         loss_inter = dice_loss(inter_pred, inter_lbl)
         loss_union = dice_loss(union_pred, union_lbl)
-        total_loss = loss_inter + loss_union
+        total_loss = (loss_inter + loss_union) / 2.0
 
     return total_loss / float(N)
 

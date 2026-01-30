@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 # for unit test from spatial_similarity_module import NONLocalBlock2D, LayerNorm
 
 class MultiProtoAsConv(nn.Module):
-    def __init__(self, proto_grid, feature_hw, upsample_mode = 'bilinear'):
+    def __init__(self, proto_grid, feature_hw, upsample_mode = 'bilinear', use_mlp = True):
         """
         ALPModule
         Args:
@@ -26,8 +26,11 @@ class MultiProtoAsConv(nn.Module):
         kernel_size = [ ft_l // grid_l for ft_l, grid_l in zip(feature_hw, proto_grid)  ]
         self.avg_pool_op = nn.AvgPool2d( kernel_size ) # kernel_size
         self.a = 0.2 # α  $---set1:[ABD: α = 0.3] // [CMR: α = 0.2]  ---$   $---set2:[ABD: α = 0.2] ---$
-        self.residual_mlp_fg = self.get_residual_mlp()
-        self.residual_mlp_bg = self.get_residual_mlp()
+        
+        self.use_mlp = use_mlp
+        if use_mlp:
+            self.residual_mlp_fg = self.get_residual_mlp()
+            self.residual_mlp_bg = self.get_residual_mlp()
 
     def get_residual_mlp(self):
         """
@@ -106,16 +109,20 @@ class MultiProtoAsConv(nn.Module):
         p0 = torch.mean(p0, dim=0, keepdim=True)  # [1, C]
 
         # apply residual_mlp to compute calibrated prototypes per rater
-        if mode in ['mask', 'gridconv+']:
-            residual_mlp = self.residual_mlp_fg # foreground prototype calibration
-        else:
-            residual_mlp = self.residual_mlp_bg # background prototype calibration
+        if self.use_mlp:
+            if mode in ['mask', 'gridconv+']:
+                residual_mlp = self.residual_mlp_fg # foreground prototype calibration
+            else:
+                residual_mlp = self.residual_mlp_bg # background prototype calibration
 
         p0_rep = p0.expand(per_rater_protos.size(0), -1)  # [total_proto, C]
         delta = per_rater_protos - p0_rep  # [total_proto, C]
         mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
-        calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
-        calibrated_protos = p0_rep + calibrated_delta  # [total_proto, C]
+        if self.use_mlp:
+            calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
+            calibrated_protos = p0_rep + calibrated_delta  # [total_proto, C]
+        else:
+            calibrated_protos = per_rater_protos
         # split calibrated_protos back into per-rater lists using recorded starts/counts
         per_rater_calibrated = []
         idx = 0
