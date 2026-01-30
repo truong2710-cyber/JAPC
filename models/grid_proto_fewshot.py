@@ -192,12 +192,10 @@ class FewShotSeg(nn.Module):
                 outputs.append(pred_rater)
 
             if self.config.get('align', False) and self.training:
-                # average predictions across raters for alignment loss (consensus)
-                pred = scores_all.mean(dim=0)  # 2 x H' x W'
-                pred_int = F.interpolate(pred.unsqueeze(0), size=img_size, mode='bilinear')
-                align_loss_epi = self.alignLoss_multi_rater(qry_fts, pred, pred_int, supp_fts,
-                                                           fore_mask_consensus, back_mask_consensus,
-                                                           fore_mask_resized, back_mask_resized)
+                # pass all rater predictions at once (reverse of forward)
+                pred_all = scores_all  # R x 2 x H' x W'
+                pred_int_all = F.interpolate(pred_all, size=img_size, mode='bilinear')  # R x 2 x H x W
+                align_loss_epi = self.alignLoss_multi_rater(qry_fts, pred_all, pred_int_all, supp_fts, fore_mask_resized, back_mask_resized)
                 align_loss += align_loss_epi
              
 
@@ -224,7 +222,6 @@ class FewShotSeg(nn.Module):
 
     # Batch was at the outer loop
     def alignLoss_multi_rater(self, qry_fts, pred, pred_int, supp_fts, 
-                              fore_mask_consensus, back_mask_consensus,
                               fore_mask_resized, back_mask_resized):
         """
         Compute alignment loss for multi-rater setting.
@@ -232,54 +229,72 @@ class FewShotSeg(nn.Module):
         
         Args:
             qry_fts: query features [N x B x C x H' x W']
-            pred: predicted segmentation score [N x 2 x H' x W']
-            pred_int: interpolated prediction [N x 2 x H x W]
+            pred: predicted segmentation score [R x 2 x H' x W']
+            pred_int: interpolated prediction [R x 2 x H x W]
             supp_fts: support features [Wa x Sh x B x C x H' x W']
-            fore_mask_consensus: consensus foreground mask [Wa x Sh x H' x W']
-            back_mask_consensus: consensus background mask [Wa x Sh x H' x W']
             fore_mask_resized: per-rater foreground masks [Wa x Sh x Raters x H' x W']
             back_mask_resized: per-rater background masks [Wa x Sh x Raters x H' x W']
         """
         mol = 'alignLoss'
-        way = 0
-        shot = 0
-        
-        pred_mask = pred.argmax(dim=1).unsqueeze(0)  # 1 x N x H' x W'
-        binary_masks = [pred_mask == i for i in range(2)]  # [bg_mask, fg_mask]
-        
-        pred_mask_int = pred_int.argmax(dim=1).unsqueeze(0)  # 1 x N x H x W
-        pred_mask_int_fg = (pred_mask_int == 1).float()
-        
-        loss = []
-        
-        # Compute loss on support images using consensus masks as pseudo ground truth
-        supp_fts_single = supp_fts[way, shot, 0, :, :, :]  # C x H' x W'
-        
-        # Use consensus masks as target
-        target_fg = fore_mask_consensus[way, shot]  # H' x W'
-        target_bg = back_mask_consensus[way, shot]  # H' x W'
-        
-        # Predict on support using query features and support prototypes
-        # This is simplified - ideally we'd extract prototypes and use them
-        qry_fts_single = qry_fts[0, 0, :, :, :]  # C x H' x W'
-        
-        # Compute similarity scores (simplified - just check if predictions match consensus)
-        # For proper alignment, we compare prediction to consensus ground truth
-        pred_fg = binary_masks[1][0, 0]  # H' x W'
-        pred_bg = binary_masks[0][0]  # H' x W'
-        
-        # Create target labels
-        target_label = torch.full_like(target_fg, 255, dtype=torch.long)
-        target_label[target_fg > 0.5] = 1
-        target_label[target_bg > 0.5] = 0
-        
-        # Reshape predictions and target for cross-entropy
-        pred_reshaped = pred.view(-1, 2)  # [N*H'*W', 2]
-        target_reshaped = target_label.view(-1).long()  # [N*H'*W']
-        
-        # Compute cross-entropy loss
-        loss_align = F.cross_entropy(pred_reshaped, target_reshaped, 
-                                     ignore_index=255, reduction='mean')
-        
-        return loss_align
+
+        n_ways = fore_mask_resized.shape[0]
+        n_shots = fore_mask_resized.shape[1]
+
+        # pred is R x 2 x H' x W' and pred_int is R x 2 x H x W
+        R = pred.shape[0]
+
+        # predicted foreground/background per rater at feature resolution
+        pred_fg_all = pred[:, 1, :, :]  # R x H' x W'
+        pred_bg_all = pred[:, 0, :, :]  # R x H' x W'
+
+        # for seed init, take union of per-rater interpolated predictions
+        pred_int_labels = pred_int.argmax(dim=1)  # R x H x W
+        seed_mask = (pred_int_labels == 1).any(dim=0).float()  # H x W (union)
+        init_seed = place_seed_points_d(seed_mask, down_stride=8, max_num_sp=5, avg_sp_area=100)
+        s_init_seed = init_seed.unsqueeze(0).cuda()
+
+        # Prepare query features to be used as support (match single-rater code shape)
+        qry_fts_for_sup = qry_fts.unsqueeze(0) # way(1) x shot(1) x B x C x H' x W' (N=S=1)
+
+        loss_terms = []
+
+        # For each way and shot, build per-rater predicted support masks and compute loss in batch
+        for way in range(n_ways):
+            for shot in range(n_shots):
+                img_fts = supp_fts[way: way + 1, shot: shot + 1].squeeze(1)  # [way(1), nb(1), C, H', W']
+
+                # interpolate predicted masks to support feature resolution: result R x 1 x h x w
+                interp_fg = F.interpolate(pred_fg_all.unsqueeze(1), size=img_fts.shape[-2:], mode='bilinear')
+                interp_bg = F.interpolate(pred_bg_all.unsqueeze(1), size=img_fts.shape[-2:], mode='bilinear')
+
+                # reshape to Wa x Sh x R x h x w (Wa=1, Sh=1) so sup_y has shape expected by cls_unit
+                # interp_* has shape (R, 1, h, w) -> permute to (1, R, h, w) then unsqueeze to (1,1,R,h,w)
+                qry_pred_fg_msk = interp_fg.permute(1, 0, 2, 3).unsqueeze(0)
+                qry_pred_bg_msk = interp_bg.permute(1, 0, 2, 3).unsqueeze(0)
+
+                # decide FG mode based on pooled per-rater predictions
+                fg_mode_cond = F.avg_pool2d(interp_fg, 4).max() >= FG_THRESH
+
+                # Call classifier once for all raters' bg and fg predictions respectively
+                _raw_score_bg, _, _ = self.cls_unit(mol=mol, qry=img_fts, sup_x=qry_fts_for_sup, sup_y=qry_pred_bg_msk, s_init_seed=s_init_seed, mode=BG_PROT_MODE, thresh=BG_THRESH)
+                _raw_score_fg, _, _ = self.cls_unit(mol=mol, qry=img_fts, sup_x=qry_fts_for_sup, sup_y=qry_pred_fg_msk, s_init_seed=s_init_seed, mode=FG_PROT_MODE if fg_mode_cond and FG_PROT_MODE != 'mask' else 'mask', thresh=FG_THRESH)
+
+                # _raw_score_* expected shape: R x 1 x H' x W' -> combine along class dim to R x 2 x H' x W'
+                supp_pred = torch.cat([_raw_score_bg, _raw_score_fg], dim=1)
+
+                # build target stack for all raters: R x H' x W'
+                target_fg = fore_mask_resized[way, shot]  # R x H' x W'
+                target_bg = back_mask_resized[way, shot]  # R x H' x W'
+                supp_label = torch.full_like(target_fg, 255, dtype=torch.long)
+                supp_label[target_fg > 0.5] = 1
+                supp_label[target_bg > 0.5] = 0
+
+                # compute cross-entropy across raters in one call (average over raters and spatial dims)
+                loss_way_shot = F.cross_entropy(supp_pred, supp_label, ignore_index=255, reduction='mean')
+                loss_terms.append(loss_way_shot / (n_shots * n_ways))
+
+        if len(loss_terms) == 0:
+            return torch.tensor(0.0, device=pred.device)
+
+        return torch.sum(torch.stack(loss_terms))
     

@@ -56,7 +56,7 @@ def cfg():
     usealign = True # see vanilla PANet
     use_wce = True
     use_bound = True
-    freeze_encoder = True # whether to freeze the backbone encoder during training
+    freeze_encoder = False # whether to freeze the backbone encoder during training
 
     ### Validation
     z_margin = 0 
