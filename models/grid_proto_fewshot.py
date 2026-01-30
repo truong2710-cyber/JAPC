@@ -38,6 +38,10 @@ class FewShotSeg(nn.Module):
         self.get_encoder(in_channels)
         self.get_cls()
 
+        if self.pretrained_path:
+            self.load_state_dict(torch.load(self.pretrained_path), strict=False)
+            print(f'###### Pre-trained model f{self.pretrained_path} has been loaded ######')
+
     def get_encoder(self, in_channels):
         # if self.config['which_model'] == 'deeplab_res101':
         if self.config['which_model'] == 'dlfcn_res101':
@@ -47,24 +51,16 @@ class FewShotSeg(nn.Module):
         else:
             raise NotImplementedError(f'Backbone network {self.config["which_model"]} not implemented')
 
-        if self.pretrained_path:
-            check = torch.load(self.pretrained_path)
-            self.load_state_dict(torch.load(self.pretrained_path),False)
-            print(f'###### Pre-trained model f{self.pretrained_path} has been loaded ######')
-
     def get_cls(self):
         """
         Obtain the similarity-based classifier
         """
         proto_hw = self.config["proto_grid_size"]
-        feature_hw = self.config["feature_hw"]
         assert self.config['cls_name'] == 'grid_proto'
         if self.config['cls_name'] == 'grid_proto':
-            self.cls_unit = MultiProtoAsConv(proto_grid = [proto_hw, proto_hw], feature_hw =  self.config["feature_hw"]) # when treating it as ordinary prototype
+            self.cls_unit = MultiProtoAsConv(proto_grid=[proto_hw, proto_hw], feature_hw=self.config["feature_hw"]) # when treating it as ordinary prototype
         else:
             raise NotImplementedError(f'Classifier {self.config["cls_name"]} not implemented')
-        # TODO: add loading of pretrained weights for classifier if any
-
 
     def compute_consensus_mask(self, rater_masks):
         """
@@ -165,10 +161,8 @@ class FewShotSeg(nn.Module):
         ###### Compute loss ######
         align_loss = 0
         outputs = []
-        visualizes = [] # the buffer for visualization
 
         for epi in range(1):
-            scores_per_rater = []
             assign_maps = []
             bg_sim_maps = []
             fg_sim_maps = []
