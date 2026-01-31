@@ -39,13 +39,14 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 50000 # 100100
+    n_steps = 25000 # 100100
+    train_milestones = 15000 # at which step to unfreeze encoder
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
     ignore_label = 255
     print_interval = 100
-    save_snapshot_every = 10000  # 25000
+    save_snapshot_every = 5000  # 25000
     max_iters_per_load = 1000 # epoch size, interval for reloading the dataset
     scan_per_load = -1 # numbers of 3d scans per load for saving memory. If -1, load the entire dataset to the memory
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
@@ -56,7 +57,8 @@ def cfg():
     usealign = True # see vanilla PANet
     use_wce = True
     use_bound = True
-    freeze_encoder = False # whether to freeze the backbone encoder during training
+    bound_wt = 0.5 # weight for boundary loss
+    freeze_encoder = True # whether to freeze the backbone encoder at the beginning of training
 
     ### Validation
     z_margin = 0 
@@ -68,8 +70,8 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/50000.pth' # path for reloading a trained model (overrides ms-coco initialization)
-    # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/50000.pth # baseline
+    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
     use_mlp = True # whether to use mlp for prototype calibration in ALP module

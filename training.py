@@ -358,24 +358,25 @@ def compute_bound_loss(query_pred_reshaped, query_labels, eps=1e-6):
     return total_loss / float(N)
 
 
-def freeze_encoder(model, freeze_bn=True, keep_bn_affine=False):
+def freeze_encoder(model, trainable=False, freeze_bn=True, keep_bn_affine=False):
     """Freeze encoder parameters and optionally control BatchNorm behavior.
 
     Args:
         model: model instance with `encoder` attribute (e.g., `FewShotSeg`)
+        trainable: set mode for encoder parameters
         freeze_bn: if True, put encoder in `eval()` mode to disable BN running stat updates
         keep_bn_affine: if True, keep BN affine parameters (`weight`/`bias`) trainable
 
     Effects:
-        - sets `requires_grad = False` for all `model.encoder` parameters
+        - sets `requires_grad = trainable` for all `model.encoder` parameters
         - if `keep_bn_affine`, re-enables `requires_grad=True` for BN affine params and sets encoder to `train()`
         - otherwise, if `freeze_bn` is True, sets encoder to `eval()` to freeze BN stats
     """
-    # disable grads for all encoder parameters
+    # turn on/off grads for all encoder parameters
     if not hasattr(model, 'encoder'):
         return
     for p in model.encoder.parameters():
-        p.requires_grad = False
+        p.requires_grad = trainable
 
     # handle BatchNorm params
     if keep_bn_affine:
@@ -391,6 +392,38 @@ def freeze_encoder(model, freeze_bn=True, keep_bn_affine=False):
         if freeze_bn:
             model.encoder.eval()
 
+
+def freeze_mlp(model, trainable: bool):
+    """
+    Enable/disable gradient updates for any residual MLPs found on `model`.
+
+    Strategy (robust):
+      - Try attributes `residual_mlp_fg`, `residual_mlp_bg`, `residual_mlp`.
+      - Also search `named_modules()` and `named_parameters()` for keys containing 'residual_mlp'.
+    """
+    found = False
+
+    # search named modules for residual mlp
+    for name, mod in model.named_modules():
+        if 'residual_mlp' in name:
+            for p in mod.parameters():
+                p.requires_grad = trainable
+            if trainable:
+                mod.train()
+            else:
+                mod.eval()
+            found = True
+
+    # finally, set any parameter whose name contains 'residual_mlp'
+    for name, p in model.named_parameters():
+        if 'residual_mlp' in name:
+            p.requires_grad = trainable
+            found = True
+
+    if found:
+        print(f'### Set residual MLP trainable={trainable} ###')
+    else:
+        raise KeyError('No residual MLP found in model to set trainable state')
 
 @ex.automain
 def main(_run, _config, _log):
@@ -415,8 +448,6 @@ def main(_run, _config, _log):
 
     model = model.cuda()
     model.train()
-    if _config['freeze_encoder']:
-        freeze_encoder(model)
 
     _log.info('###### Load data ######')
     ### Training set
@@ -497,9 +528,15 @@ def main(_run, _config, _log):
     log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0}
 
     _log.info('###### Training ######')
+    if _config['freeze_encoder']:
+        freeze_encoder(model, trainable=False)
     for sub_epoch in range(n_sub_epoches):
         _log.info(f'###### This is epoch {sub_epoch} of {n_sub_epoches} epoches ######')
         for _, sample_batched in enumerate(trainloader):
+            if i_iter == _config['train_milestones']:
+                _log.info('###### Milestone reached, unfreeze the encoder ######')
+                # unfreeze encoder
+                freeze_encoder(model, trainable=True, freeze_bn=False, keep_bn_affine=True)
             # Prepare input
             i_iter += 1 
             # add writers
@@ -570,7 +607,7 @@ def main(_run, _config, _log):
                 b_loss = 0.0
 
             # Total loss = query CE + alignment loss + bound loss
-            loss = query_loss + align_loss + b_loss
+            loss = query_loss + align_loss + _config['bound_wt'] * b_loss
         
             loss.backward()
             optimizer.step()
@@ -578,14 +615,17 @@ def main(_run, _config, _log):
             # Log loss
             q_loss_val = query_loss.detach().cpu().numpy()
             align_loss_val = align_loss.detach().cpu().numpy() if isinstance(align_loss, torch.Tensor) else align_loss
-            b_loss_val = b_loss.detach().cpu().numpy() if isinstance(b_loss, torch.Tensor) else 0
+            if _config['use_bound']:
+                b_loss_val = b_loss.detach().cpu().numpy() if isinstance(b_loss, torch.Tensor) else 0
 
             _run.log_scalar('loss', float(q_loss_val))
             _run.log_scalar('align_loss', float(align_loss_val))
-            _run.log_scalar('bound_loss', float(b_loss_val))
+            if _config['use_bound']:
+                _run.log_scalar('bound_loss', float(b_loss_val))
             log_loss['loss'] += float(q_loss_val)
             log_loss['align_loss'] += float(align_loss_val)
-            log_loss['bound_loss'] += float(b_loss_val)
+            if _config['use_bound']:
+                log_loss['bound_loss'] += float(b_loss_val)
 
             # print loss and take snapshots
             if (i_iter + 1) % _config['print_interval'] == 0:
@@ -598,9 +638,12 @@ def main(_run, _config, _log):
                 log_loss['align_loss'] = 0
                 log_loss['bound_loss'] = 0
 
-                print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, bound_loss: {bound_loss},')
+                if _config['use_bound']:
+                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, bound_loss: {bound_loss},')
+                else:
+                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}')
 
-            if (i_iter + 1) % _config['save_snapshot_every'] == 0:
+            if (i_iter + 1) % _config['save_snapshot_every'] == 0 or (i_iter + 1) == _config['n_steps']:
                 _log.info('###### Taking snapshot ######')
                 torch.save(model.state_dict(),
                            os.path.join(f'{_run.observers[0].dir}/snapshots', f'{i_iter + 1}.pth'))

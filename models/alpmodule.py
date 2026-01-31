@@ -50,6 +50,13 @@ class MultiProtoAsConv(nn.Module):
             nn.Linear(hidden_dim, proto_dim)
         )
 
+        # Initialize final layer to zeros so the residual output is zero at the start
+        last = residual_mlp[-1]
+        if isinstance(last, nn.Linear):
+            nn.init.zeros_(last.weight)
+            if last.bias is not None:
+                nn.init.zeros_(last.bias)
+
         return residual_mlp
 
     def get_wight(self):
@@ -120,7 +127,7 @@ class MultiProtoAsConv(nn.Module):
         mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
         if self.use_mlp:
             calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
-            calibrated_protos = p0_rep + calibrated_delta  # [total_proto, C]
+            calibrated_protos = per_rater_protos + calibrated_delta  # [total_proto, C]
         else:
             calibrated_protos = per_rater_protos
         # split calibrated_protos back into per-rater lists using recorded starts/counts
