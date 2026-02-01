@@ -142,8 +142,8 @@ class FewShotSeg(nn.Module):
         fore_mask_resized = F.interpolate(fore_mask_flat.float(), size=fts_size, mode='bilinear')
         back_mask_resized = F.interpolate(back_mask_flat.float(), size=fts_size, mode='bilinear')
 
-        fore_mask_resized = fore_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x R x H' x W'
-        back_mask_resized = back_mask_resized.view(Wa, Sh, Raters, *fts_size).squeeze(3)  # Wa x Sh x R x H' x W'
+        fore_mask_resized = fore_mask_resized.view(Wa, Sh, Raters, *fts_size) # Wa x Sh x R x H' x W'
+        back_mask_resized = back_mask_resized.view(Wa, Sh, Raters, *fts_size)  # Wa x Sh x R x H' x W'
 
         # consensus mask from fore masks for seed init
         fore_mask_consensus = (fore_mask_stacked.mean(dim=2) > 0.5).float()  # Wa x Sh x H x W
