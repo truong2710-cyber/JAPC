@@ -151,12 +151,9 @@ class FewShotSeg(nn.Module):
 
         init_seed_list = []
         mask = (s_y == 1).float()  # H x W
-        breakpoint()
         init_seed = place_seed_points_d(mask, down_stride=8, max_num_sp=5, avg_sp_area=100)
         init_seed_list.append(init_seed.unsqueeze(0))
         s_init_seed = torch.cat(init_seed_list).cuda()
-
-        back_mask_consensus = (back_mask_resized.mean(dim=2) > 0.5).float()
 
         ###### Compute loss ######
         align_loss = 0

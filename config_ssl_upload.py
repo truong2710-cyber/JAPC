@@ -59,7 +59,7 @@ def cfg():
     use_bound = False
     bound_wt = 0.5 # weight for boundary loss
     freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
-    num_pseudo_raters = 3 # number of pseudo raters during training (>=1)
+    num_pseudo_raters = 1 # number of pseudo raters during training (>=1)
 
     ### Validation
     z_margin = 0 
@@ -75,7 +75,7 @@ def cfg():
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
-    use_mlp = True # whether to use mlp for prototype calibration in ALP module
+    use_mlp = False # whether to use mlp for prototype calibration in ALP module
 
     # SSL
     superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
