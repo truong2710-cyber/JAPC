@@ -127,6 +127,11 @@ class MultiProtoAsConv(nn.Module):
         mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
         if self.use_mlp:
             calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
+            # print delta magnitudes for debugging
+            # print("Avg delta norm before/after MLP: {:.4f} / {:.4f}".format(
+            #     delta.norm(p=2, dim=1).mean().item(),
+            #     calibrated_delta.norm(p=2, dim=1).mean().item()
+            # ))
             calibrated_protos = per_rater_protos + calibrated_delta  # [total_proto, C]
         else:
             calibrated_protos = per_rater_protos
@@ -287,11 +292,33 @@ class MultiProtoAsConv(nn.Module):
             num_sp = max(len(torch.nonzero(s_seed_[:, 0])), len(torch.nonzero(s_seed_[:, 1])))
             if (num_sp == 0):
                 proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
-                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)  # nb x C
+                # attention refinement 
+                cos_sim_map_sup = F.conv2d(out_su,
+                                            proto[..., None, None].repeat(1, 1, 1, 1))
+                cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1)
+                attention = cos_sim_map_sup_t.softmax(dim=-1)
+                sp_center_t = proto.t().unsqueeze(0)
+                out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1])
+                out1 = out + sup_x
+
+                proto = torch.sum(out1 * sup_y, dim=(-1, -2)) \
+                        / (sup_y.sum(dim=(-1, -2)) + 1e-5)
             else:
                 if mol == 'alignLoss':
                     proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
                          / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                    # attention refinement 
+                    cos_sim_map_sup = F.conv2d(out_su,
+                                                proto[..., None, None].repeat(1, 1, 1, 1))
+                    cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1)
+                    attention = cos_sim_map_sup_t.softmax(dim=-1)
+                    sp_center_t = proto.t().unsqueeze(0)
+                    out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1])
+                    out1 = out + sup_x
+
+                    proto = torch.sum(out1 * sup_y, dim=(-1, -2)) \
+                    / (sup_y.sum(dim=(-1, -2)) + 1e-5)
                 else:
                     sp_center_list = []
                     sup_nshot = sup_x.shape[0]
@@ -378,11 +405,33 @@ class MultiProtoAsConv(nn.Module):
             num_sp = max(len(torch.nonzero(s_seed_[:, 0])), len(torch.nonzero(s_seed_[:, 1])))
             if (num_sp == 0):
                 proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
-                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)  # nb x C
+                # attention refinement (single-rater style)
+                cos_sim_map_sup = F.conv2d(out_su,
+                                            proto[..., None, None].repeat(1, 1, 1, 1))
+                cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1)
+                attention = cos_sim_map_sup_t.softmax(dim=-1)
+                sp_center_t = proto.t().unsqueeze(0)
+                out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1])
+                out1 = out + sup_x
+
+                proto = torch.sum(out1 * sup_y, dim=(-1, -2)) \
+                        / (sup_y.sum(dim=(-1, -2)) + 1e-5)
             else:
                 if mol == 'alignLoss':
                     proto = torch.sum(out_su * sup_y, dim=(-1, -2)) \
-                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                         / (sup_y.sum(dim=(-1, -2)) + 1e-5)  # nb x C
+                    # attention refinement for alignLoss path
+                    cos_sim_map_sup = F.conv2d(out_su,
+                                                proto[..., None, None].repeat(1, 1, 1, 1))
+                    cos_sim_map_sup_t = cos_sim_map_sup.view(out_su.size()[0], 1, -1)
+                    attention = cos_sim_map_sup_t.softmax(dim=-1)
+                    sp_center_t = proto.t().unsqueeze(0)
+                    out = torch.bmm(sp_center_t, attention).view(1, sup_x.size()[1], sup_x.size()[-2], sup_x.size()[-1])
+                    out1 = out + sup_x
+
+                    proto = torch.sum(out1 * sup_y, dim=(-1, -2)) \
+                    / (sup_y.sum(dim=(-1, -2)) + 1e-5)
                 else:
                     sp_center_list = []
                     sup_nshot = sup_x.shape[0]

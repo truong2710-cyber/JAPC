@@ -56,16 +56,16 @@ def cfg():
     exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
-    use_bound = True
+    use_bound = False
     bound_wt = 0.5 # weight for boundary loss
-    freeze_encoder = True # whether to freeze the backbone encoder at the beginning of training
+    freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
 
     ### Validation
     z_margin = 0 
     eval_fold = 0 # which fold for 5 fold cross validation
     support_idx=[-1] # indicating which scan is used as support in testing. 
     val_wsize=2 # L_H, L_W in testing
-    n_sup_part = 5 # number of chuncks in testing
+    n_sup_part = 3 # number of chuncks in testing
 
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
