@@ -101,21 +101,40 @@ class SuperpixelDataset(BaseDataset):
         print("###### Initial scans loaded: ######")
         print(self.pid_curr_load)
 
-    def generate_rater_styles(self, n_raters=3):
+    def generate_rater_styles(self, n_raters=3, mild=True):
         """
         Generate N random morphological operation styles for rater variation.
-        Each style is consistent and can be applied to different masks.
-        
+        By default (mild=True) produce conservative, low-variance styles to reduce noisy labels.
+
         Args:
             n_raters: number of different styles to generate
-            
+            mild: if True, restrict ranges and aggressive ops (default True)
+
         Returns:
             List of style specifications, e.g., [('erosion', 1), ('dilation', 1), ('fill_holes', 0)]
         """
-        # Build a richer set of possible operations and parameters
-        simple_ops = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes', 'component_prune']
         styles = []
 
+        if mild:
+            # conservative set: only basic morphology + occasional small blur/fill
+            basic_ops = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes']
+            for _ in range(n_raters):
+                if random.random() < 0.85:
+                    op = random.choice(basic_ops)
+                    if op in ['erosion', 'dilation', 'opening', 'closing']:
+                        # only small kernels to avoid large structural changes
+                        k = random.choice([1, 1, 2])
+                        styles.append((op, k))
+                    else:
+                        styles.append((op, 0))
+                else:
+                    # small gaussian blur occasionally
+                    sigma = random.uniform(0.3, 0.8)
+                    styles.append(('gaussian_blur', sigma))
+            return styles
+
+        # original, richer behavior (non-mild)
+        simple_ops = ['erosion', 'dilation', 'opening', 'closing', 'fill_holes', 'component_prune']
         for _ in range(n_raters):
             # Either pick a single op or a short randomized sequence to increase diversity
             if random.random() < 0.6:
