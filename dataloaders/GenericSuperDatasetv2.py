@@ -22,7 +22,7 @@ from util.utils import CircularList
 from scipy import ndimage
 
 class SuperpixelDataset(BaseDataset):
-    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', **kwargs):
+    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', num_raters = 3, **kwargs):
         """
         Pseudolabel dataset
         Args:
@@ -39,6 +39,7 @@ class SuperpixelDataset(BaseDataset):
             exclude_list:       Labels to be excluded
             test_lbs:           labels to be treated as unseen classes during training
             superpix_scale:     config of superpixels
+            num_raters:         number of raters for pseudolabels
         """
 
         super(SuperpixelDataset, self).__init__(base_dir) 
@@ -56,6 +57,7 @@ class SuperpixelDataset(BaseDataset):
         self.num_rep = num_rep
         self.tile_z_dim = tile_z_dim
         self.test_lbs = test_lbs
+        self.num_raters = num_raters
 
         # find scans in the data folder
         self.nsup = nsup
@@ -497,42 +499,44 @@ class SuperpixelDataset(BaseDataset):
 
         # Generate rater styles on-the-fly AFTER binarization for superpixel data
         if self.use_gt == False:
-            # Generate N-1 rater styles (N-1 because rater 0 is the original)
-            rater_styles = self.generate_rater_styles(n_raters=2)  # Generate 2 styles for raters 1, 2
-            
-            # Apply styles to generate multiple rater versions from the binarized mask
-            labels_t_augmented = {}
-            if 0 in labels_t:  # Original binarized mask is stored with rater_id=0
-                labels_t_augmented[0] = labels_t[0]  # Keep original as rater 0
+            if self.num_raters > 1:
+                # Generate N-1 rater styles (N-1 because rater 0 is the original)
+                rater_styles = self.generate_rater_styles(n_raters=self.num_raters - 1)  # Generate N-1 styles along with rater 0 to form N raters
                 
-                for rater_id, style in enumerate(rater_styles, 1):  # Apply styles to raters 1, 2, ...
-                    lb = labels_t[0].clone() if hasattr(labels_t[0], 'clone') else labels_t[0].copy()
+                # Apply styles to generate multiple rater versions from the binarized mask
+                labels_t_augmented = {}
+                if 0 in labels_t:  # Original binarized mask is stored with rater_id=0
+                    labels_t_augmented[0] = labels_t[0]  # Keep original as rater 0
                     
-                    # Convert to numpy for morphological operations
-                    if isinstance(lb, torch.Tensor):
-                        lb_np = lb.cpu().numpy()
-                    else:
-                        lb_np = lb
-                    
-                    # print(f"[DEBUG] Rater {rater_id} - Original label shape: {lb_np.shape}, max: {lb_np.max()}")
-                    
-                    # Apply style directly to 2D slice (already (256, 256, 1))
-                    slice_2d = lb_np.squeeze()  # Remove channel dimension to get (256, 256)
-                    slice_augmented = self.apply_rater_style(slice_2d, style)
-                    
-                    # if slice_augmented.max() == 0:
-                    #     print(f"[DEBUG] Rater {rater_id} is all zeros after style {style}")
-                    
-                    # Restore channel dimension
-                    lb_augmented = slice_augmented[..., np.newaxis]  # Back to (256, 256, 1)
-                    
-                    # Convert back to tensor if needed
-                    lb_augmented_tensor = torch.from_numpy(lb_augmented) if isinstance(labels_t[0], torch.Tensor) else lb_augmented
-                    labels_t_augmented[rater_id] = lb_augmented_tensor
-                    # print(f"[DEBUG] Rater {rater_id} - After style {style}, label max: {lb_augmented.max()}")
-            
+                    for rater_id, style in enumerate(rater_styles, 1):  # Apply styles to raters 1, 2, ...
+                        lb = labels_t[0].clone() if hasattr(labels_t[0], 'clone') else labels_t[0].copy()
+                        
+                        # Convert to numpy for morphological operations
+                        if isinstance(lb, torch.Tensor):
+                            lb_np = lb.cpu().numpy()
+                        else:
+                            lb_np = lb
+                        
+                        # print(f"[DEBUG] Rater {rater_id} - Original label shape: {lb_np.shape}, max: {lb_np.max()}")
+                        
+                        # Apply style directly to 2D slice (already (256, 256, 1))
+                        slice_2d = lb_np.squeeze()  # Remove channel dimension to get (256, 256)
+                        slice_augmented = self.apply_rater_style(slice_2d, style)
+                        
+                        # if slice_augmented.max() == 0:
+                        #     print(f"[DEBUG] Rater {rater_id} is all zeros after style {style}")
+                        
+                        # Restore channel dimension
+                        lb_augmented = slice_augmented[..., np.newaxis]  # Back to (256, 256, 1)
+                        
+                        # Convert back to tensor if needed
+                        lb_augmented_tensor = torch.from_numpy(lb_augmented) if isinstance(labels_t[0], torch.Tensor) else lb_augmented
+                        labels_t_augmented[rater_id] = lb_augmented_tensor
+                        # print(f"[DEBUG] Rater {rater_id} - After style {style}, label max: {lb_augmented.max()}")
+            else:
+                labels_t_augmented = {0: labels_t[0]}  # Only original rater
             labels_t = labels_t_augmented
-            available_rater_ids = list(range(len(rater_styles) + 1))  # +1 for the original (rater 0)
+            available_rater_ids = list(range(self.num_raters))  
             curr_dict["available_rater_ids"] = available_rater_ids
 
         pair_buffer = []
