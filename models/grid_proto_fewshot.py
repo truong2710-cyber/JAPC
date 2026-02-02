@@ -241,8 +241,10 @@ class FewShotSeg(nn.Module):
         R = pred.shape[0]
 
         # predicted foreground/background per rater at feature resolution
-        pred_fg_all = pred[:, 1, :, :]  # R x H' x W'
-        pred_bg_all = pred[:, 0, :, :]  # R x H' x W'
+        # compute hard label per rater (argmax along class dim) and binarize
+        pred_label = pred.argmax(dim=1)  # R x H' x W'
+        pred_fg_all = (pred_label == 1).float()
+        pred_bg_all = (pred_label == 0).float()
 
         # for seed init, take union of per-rater interpolated predictions
         pred_int_labels = pred_int.argmax(dim=1)  # R x H x W
@@ -260,17 +262,12 @@ class FewShotSeg(nn.Module):
             for shot in range(n_shots):
                 img_fts = supp_fts[way: way + 1, shot: shot + 1].squeeze(1)  # [way(1), nb(1), C, H', W']
 
-                # interpolate predicted masks to support feature resolution: result R x 1 x H' x W'
-                interp_fg = F.interpolate(pred_fg_all.unsqueeze(1), size=img_fts.shape[-2:], mode='bilinear')
-                interp_bg = F.interpolate(pred_bg_all.unsqueeze(1), size=img_fts.shape[-2:], mode='bilinear')
-
-                # reshape to Wa x Sh x R x H' x W' (Wa=1, Sh=1) so sup_y has shape expected by cls_unit
-                # interp_* has shape (R, 1, H', W') -> permute to (1, R, H', W') then unsqueeze to (1,1,R,H',W')
-                qry_pred_fg_msk = interp_fg.permute(1, 0, 2, 3).unsqueeze(0)
-                qry_pred_bg_msk = interp_bg.permute(1, 0, 2, 3).unsqueeze(0)
+                # W(1) x S(1) x R x H' x W'
+                qry_pred_fg_msk = pred_fg_all.unsqueeze(0).unsqueeze(0)
+                qry_pred_bg_msk = pred_bg_all.unsqueeze(0).unsqueeze(0)
 
                 # decide FG mode based on pooled per-rater predictions
-                fg_mode_cond = F.avg_pool2d(interp_fg.mean(dim=0, keepdim=True), 4).max() >= FG_THRESH
+                fg_mode_cond = F.avg_pool2d(qry_pred_fg_msk.mean(dim=2), 4).max() >= FG_THRESH
 
                 # Call classifier once for all raters' bg and fg predictions respectively
                 _raw_score_bg, _, _ = self.cls_unit(mol=mol, qry=img_fts, sup_x=qry_fts_for_sup, sup_y=qry_pred_bg_msk, s_init_seed=s_init_seed, mode=BG_PROT_MODE, thresh=BG_THRESH)
