@@ -561,10 +561,10 @@ class SuperpixelDataset(BaseDataset):
         pair_buffer = []
 
         for ii in range(self.num_rep):
-            # Apply transforms to image + each label separately with same random seed
+            # Apply transforms to image + rater labels together
             sorted_rater_ids = sorted(available_rater_ids)
             
-            # Apply transforms to all raters with same seed
+            # Apply transforms to all raters 
             lbs_dict = {}
             img = None
             

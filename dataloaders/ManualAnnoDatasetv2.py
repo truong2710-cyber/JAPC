@@ -242,26 +242,28 @@ class ManualAnnoDataset(BaseDataset):
                 for _ex_cls in self.exclude_lbs:
                     if curr_dict["z_id"] in self.tp1_cls_map[self.label_name[_ex_cls]][curr_dict["scan_id"]]: # this slice need to be excluded since it contains label which is supposed to be unseen
                         return self.__getitem__(index + torch.randint(low = 0, high = self.__len__() - 1, size = (1,)))
-            # When training, apply transforms to image+each rater label with same seed
+            # When training, apply transforms to image+rater labels 
             labels_raw = curr_dict.get('lbs', {})
             available_rater_ids = sorted(list(labels_raw.keys()))
 
-            # deterministic augmentation seed per index
-            aug_seed = index % (2**31 - 1)
             img_out = None
             lbs_out_dict = {}
-            for rater_id in available_rater_ids:
-                torch.manual_seed(aug_seed)
-                np.random.seed(aug_seed)
-                random.seed(aug_seed)
-                comp = np.concatenate([curr_dict['img'], labels_raw[rater_id]], axis=-1)
-                img_tmp, lb_tmp = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, use_onehot=False)
-                if img_out is None:
-                    img_out = img_tmp
-                # ensure label shape HxWx1
-                lbs_out_dict[rater_id] = lb_tmp
+            
+            # Concatenate image with all R compact labels and transform once
+            label_list = [labels_raw[r] for r in available_rater_ids]
+            # Convert any torch tensors to numpy
+            label_list_np = [l.cpu().numpy() if isinstance(l, torch.Tensor) else l for l in label_list]
+            labels_concat = np.concatenate(label_list_np, axis=-1)  # H x W x R
+            comp = np.concatenate([curr_dict["img"], labels_concat], axis=-1)  # H x W x (1 + R)
+
+            img_out, lbs_out = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, use_onehot=False, r_label=len(available_rater_ids))
 
             img = img_out
+            # lbs_out expected shape: H x W x R (compact labels per rater)
+            for i, rater_id in enumerate(available_rater_ids):
+                out_np = lbs_out[..., i]
+                lbs_out_dict[rater_id] = torch.from_numpy(out_np)
+
             labels_raw = lbs_out_dict
 
         else:
