@@ -101,29 +101,39 @@ def transform_with_label(aug):
     geometric_tfx = get_geometric_transformer(aug)
     intensity_tfx = get_intensity_transformer(aug)
 
-    def transform(comp, c_label, c_img, use_onehot, nclass, **kwargs):
+    def transform(comp, c_label, c_img, use_onehot, nclass, r_label=1, **kwargs):
         """
         Args
         comp:               a numpy array with shape [H x W x C + c_label]
         c_label:            number of channels for a compact label. Note that the current version only supports 1 slice (H x W x 1)
         nc_onehot:          -1 for not using one-hot representation of mask. otherwise, specify number of classes in the label
-
+        r_label:            number of labels to be augmented together with the image
         """
         comp = copy.deepcopy(comp)
         if (use_onehot is True) and (c_label != 1):
             raise NotImplementedError("Only allow compact label, also the label can only be 2d")
-        assert c_img + 1 == comp.shape[-1], "only allow single slice 2D label"
+        # expect comp shape: H x W x (c_img + r_label * c_label)
+        assert comp.shape[-1] == c_img + r_label * c_label, "unexpected input channels for given c_img/c_label/r_label"
 
-        # geometric transform
-        _label = comp[..., c_img ]
-        _h_label = np.float32(np.arange( nclass ) == (_label[..., None]) )
-        comp = np.concatenate( [comp[...,  :c_img ], _h_label], -1 )
+        # geometric transform: convert each compact label channel to one-hot and concatenate
+        if c_label != 1:
+            raise NotImplementedError("Currently only support c_label == 1")
+
+        labels_comp = comp[..., c_img:]
+        # labels_comp shape: H x W x r_label  (since c_label == 1)
+        _h_label_list = []
+        for i in range(r_label):
+            lbl = labels_comp[..., i]
+            _h = np.float32(np.arange(nclass) == (lbl[..., None]))
+            _h_label_list.append(_h)
+        _h_label = np.concatenate(_h_label_list, axis=-1)
+        comp = np.concatenate([comp[..., :c_img], _h_label], -1)
         comp = geometric_tfx(comp)
         # round one_hot labels to 0 or 1
-        t_label_h = comp[..., c_img : ]
+        t_label_h = comp[..., c_img:]
         t_label_h = np.rint(t_label_h)
         assert t_label_h.max() <= 1
-        t_img = comp[..., 0 : c_img ]
+        t_img = comp[..., 0:c_img]
 
         # intensity transform
         t_img = intensity_tfx(t_img)
@@ -131,7 +141,15 @@ def transform_with_label(aug):
         if use_onehot is True:
             t_label = t_label_h
         else:
-            t_label = np.expand_dims(np.argmax(t_label_h, axis = -1), -1)
+            # split t_label_h into r_label chunks and take argmax per chunk
+            chunks = []
+            for i in range(r_label):
+                start = i * nclass
+                end = (i + 1) * nclass
+                chunk = t_label_h[..., start:end]
+                chunks.append(np.argmax(chunk, axis=-1))
+            # stacked compact labels: H x W x r_label
+            t_label = np.stack(chunks, axis=-1)
         return t_img, t_label
 
     return transform

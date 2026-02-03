@@ -564,28 +564,27 @@ class SuperpixelDataset(BaseDataset):
             # Apply transforms to image + each label separately with same random seed
             sorted_rater_ids = sorted(available_rater_ids)
             
-            # Use a deterministic seed based on index and iteration (must be < 2**32 - 1 for numpy)
-            aug_seed = (index * 1000 + ii) % (2**31 - 1)
-            
             # Apply transforms to all raters with same seed
             lbs_dict = {}
             img = None
             
-            for rater_id in sorted_rater_ids:
-                # Reset seed before each transform to ensure identical augmentations
-                torch.manual_seed(aug_seed)
-                np.random.seed(aug_seed)
-                random.seed(aug_seed)
-                
-                comp = np.concatenate([curr_dict["img"], labels_t[rater_id]], axis=-1)
-                img_out, lbs_out = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False)
-                
-                # Save image only once (same for all raters due to same seed)
-                if img is None:
-                    img = img_out
-                
-                lbs_dict[rater_id] = torch.from_numpy(lbs_out.squeeze(-1))
-            
+            # Concatenate image with all R compact labels and transform once
+            label_list = [labels_t[r] for r in sorted_rater_ids]
+            # Convert any torch tensors to numpy
+            label_list_np = [l.cpu().numpy() if isinstance(l, torch.Tensor) else l for l in label_list]
+            labels_concat = np.concatenate(label_list_np, axis=-1)  # H x W x R
+            comp = np.concatenate([curr_dict["img"], labels_concat], axis=-1)  # H x W x (1 + R)
+
+            img_out, lbs_out = self.transforms(comp, c_img=1, c_label=1, nclass=self.nclass, is_train=True, use_onehot=False, r_label=len(sorted_rater_ids))
+
+            # Save transformed image
+            img = img_out
+
+            # lbs_out expected shape: H x W x R (compact labels per rater)
+            for i, rater_id in enumerate(sorted_rater_ids):
+                out_np = lbs_out[..., i]
+                lbs_dict[rater_id] = torch.from_numpy(out_np)
+
             img = torch.from_numpy(np.transpose(img, (2, 0, 1)))
 
             if self.tile_z_dim:
