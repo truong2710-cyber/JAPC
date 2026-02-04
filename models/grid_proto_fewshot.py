@@ -58,7 +58,7 @@ class FewShotSeg(nn.Module):
         proto_hw = self.config["proto_grid_size"]
         assert self.config['cls_name'] == 'grid_proto'
         if self.config['cls_name'] == 'grid_proto':
-            self.cls_unit = MultiProtoAsConv(proto_grid=[proto_hw, proto_hw], feature_hw=self.config["feature_hw"], use_mlp=self.config["use_mlp"]) # when treating it as ordinary prototype
+            self.cls_unit = MultiProtoAsConv(proto_grid=[proto_hw, proto_hw], feature_hw=self.config["feature_hw"], use_mlp=self.config["use_mlp"], use_proto_attention=self.config["use_attention"]) # when treating it as ordinary prototype
         else:
             raise NotImplementedError(f'Classifier {self.config["cls_name"]} not implemented')
 
@@ -183,6 +183,10 @@ class FewShotSeg(nn.Module):
                 bg_sim_maps.append(aux_bg.get('raw_local_sims', None) if isinstance(aux_bg, dict) else None)
                 fg_sim_maps.append(aux_fg.get('raw_local_sims', None) if isinstance(aux_fg, dict) else None)
 
+            # collect prototype calibration losses from classifier (if present)
+            # keep separate from align_loss and return it later
+            proto_calib_loss_total = aux_bg['proto_calib_loss'] + aux_fg['proto_calib_loss']
+
             # interpolate each rater's score to image size and append to outputs
             for rater_idx in range(scores_all.shape[0]):
                 pred_rater = F.interpolate(scores_all[rater_idx].unsqueeze(0), size=img_size, mode='bilinear')
@@ -215,7 +219,7 @@ class FewShotSeg(nn.Module):
         else:
             fg_sim_maps = None
 
-        return output, align_loss / sup_bsize, [bg_sim_maps, fg_sim_maps], assign_maps
+        return output, align_loss / sup_bsize, proto_calib_loss_total / sup_bsize, [bg_sim_maps, fg_sim_maps], assign_maps
 
     # Batch was at the outer loop
     def alignLoss_multi_rater(self, qry_fts, pred, pred_int, supp_fts, 

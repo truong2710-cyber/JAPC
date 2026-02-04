@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 # for unit test from spatial_similarity_module import NONLocalBlock2D, LayerNorm
 
 class MultiProtoAsConv(nn.Module):
-    def __init__(self, proto_grid, feature_hw, upsample_mode = 'bilinear', use_mlp = True):
+    def __init__(self, proto_grid, feature_hw, upsample_mode = 'bilinear', use_mlp = True, use_proto_attention = True):
         """
         ALPModule
         Args:
@@ -31,6 +31,9 @@ class MultiProtoAsConv(nn.Module):
         if use_mlp:
             self.residual_mlp_fg = self.get_residual_mlp()
             self.residual_mlp_bg = self.get_residual_mlp()
+        self.use_proto_attention = use_proto_attention
+        if use_proto_attention:
+            self.proto_attention = self.get_proto_attention()
 
     def get_residual_mlp(self):
         """
@@ -58,6 +61,38 @@ class MultiProtoAsConv(nn.Module):
                 nn.init.zeros_(last.bias)
 
         return residual_mlp
+
+    def get_proto_attention(self):
+        """
+        Build a small Q/K/V-based attention module that computes a scalar weight
+        from query=linear(p_i) and key=linear(delta = p_i - p0).
+        Returns a nn.Module with forward(p_i, delta) -> weight [N,1] in (0,1).
+        """
+        proto_dim = 256
+
+        class ProtoAttention(nn.Module):
+            def __init__(self, dim):
+                super(ProtoAttention, self).__init__()
+                self.q = nn.Linear(dim, dim)
+                self.k = nn.Linear(dim, dim)
+                self.v = nn.Linear(dim, dim)
+
+            def forward(self, p_i, delta):
+                # p_i: [N, C], delta: [N, C]
+                q = self.q(p_i)
+                k = self.k(delta)
+                # v can be used for transformed prototype if needed; we only use it implicitly
+                # here we compute a scalar attention weight using scaled dot-product across channels
+                att_raw = (q * k).sum(dim=1, keepdim=True) / math.sqrt(q.size(1))
+                weight = torch.sigmoid(att_raw)
+                return weight
+
+        att = ProtoAttention(proto_dim)
+        # initialize q/k/v weights small (default init is fine); ensure bias starts near zero
+        for lin in [att.q, att.k, att.v]:
+            if isinstance(lin, nn.Linear):
+                nn.init.zeros_(lin.bias)
+        return att
 
     def get_wight(self):
         # """
@@ -125,16 +160,29 @@ class MultiProtoAsConv(nn.Module):
         p0_rep = p0.expand(per_rater_protos.size(0), -1)  # [total_proto, C]
         delta = per_rater_protos - p0_rep  # [total_proto, C]
         mlp_input = torch.cat([p0_rep, delta], dim=1)  # [total_proto, 2C]
-        if self.use_mlp:
+
+        # Calibration options:
+        # - If `use_proto_attention` is enabled, compute a trainable scalar attention weight
+        #   from [pi, pi-p0] and scale the prototype: p_i <- p_i * att(pi, pi-p0)
+        # - Else if `use_mlp` is enabled, use residual MLP to add a learned delta
+        if self.use_proto_attention:
+            # proto_attention expects (p_i, delta) and returns [N,1]
+            att_weights = self.proto_attention(per_rater_protos, delta)  # [total_proto, 1]
+            calibrated_protos = per_rater_protos * att_weights
+        elif self.use_mlp:
             calibrated_delta = residual_mlp(mlp_input)  # [total_proto, C]
-            # print delta magnitudes for debugging
-            # print("Avg delta norm before/after MLP: {:.4f} / {:.4f}".format(
-            #     delta.norm(p=2, dim=1).mean().item(),
-            #     calibrated_delta.norm(p=2, dim=1).mean().item()
-            # ))
             calibrated_protos = per_rater_protos + calibrated_delta  # [total_proto, C]
         else:
             calibrated_protos = per_rater_protos
+        # compute L2 calibration loss between original and calibrated prototypes
+        proto_calib_loss = None
+        try:
+            proto_calib_loss = torch.mean((per_rater_protos - calibrated_protos) ** 2)
+            # store on module for external access; keep computational graph
+            self.proto_calib_loss = proto_calib_loss
+        except Exception:
+            # if shapes mismatch or tensors not available, skip
+            proto_calib_loss = None
         # split calibrated_protos back into per-rater lists using recorded starts/counts
         per_rater_calibrated = []
         idx = 0
@@ -166,6 +214,8 @@ class MultiProtoAsConv(nn.Module):
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
             vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            if proto_calib_loss is not None:
+                vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
                 vis_dict['raw_local_sims'] = raw_sims_list
             return pred_stack, per_rater_assigns, vis_dict
@@ -192,6 +242,8 @@ class MultiProtoAsConv(nn.Module):
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
             vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            if proto_calib_loss is not None:
+                vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
                 vis_dict['raw_local_sims'] = raw_sims_list
             return pred_stack, per_rater_assigns, vis_dict
@@ -218,6 +270,8 @@ class MultiProtoAsConv(nn.Module):
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
             vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            if proto_calib_loss is not None:
+                vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
                 vis_dict['raw_local_sims'] = raw_sims_list
             return pred_stack, per_rater_assigns, vis_dict
@@ -248,6 +302,8 @@ class MultiProtoAsConv(nn.Module):
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
             vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            if proto_calib_loss is not None:
+                vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
                 vis_dict['raw_local_sims'] = raw_sims_list
             return pred_stack, per_rater_assigns, vis_dict
@@ -273,6 +329,8 @@ class MultiProtoAsConv(nn.Module):
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
             vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            if proto_calib_loss is not None:
+                vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
                 vis_dict['raw_local_sims'] = raw_sims_list
             return pred_stack, per_rater_assigns, vis_dict

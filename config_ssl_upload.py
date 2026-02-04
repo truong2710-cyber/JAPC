@@ -57,7 +57,8 @@ def cfg():
     usealign = True # see vanilla PANet
     use_wce = True
     use_bound = False
-    bound_wt = 0.5 # weight for boundary loss
+    bound_wt = 0.1 # weight for boundary loss
+    calib_wt = 1 # weight for prototype calibration loss
     freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
     num_pseudo_raters = 3 # number of pseudo raters during training (>=1)
     mild_aug = False # whether to use mild augmentation for generating pseudo labels
@@ -72,11 +73,12 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/93/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
-    use_mlp = True # whether to use mlp for prototype calibration in ALP module
+    use_mlp = False # whether to use mlp for prototype calibration in ALP module
+    use_attention = True # whether to use attention for prototype calibration in ALP module
 
     # SSL
     superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
@@ -89,7 +91,8 @@ def cfg():
         'proto_grid_size' : proto_grid_size,
         'feature_hw': feature_hw,
         'reload_model_path': reload_model_path,
-        'use_mlp': use_mlp
+        'use_mlp': use_mlp,
+        'use_attention': use_attention
     }
 
     task = {

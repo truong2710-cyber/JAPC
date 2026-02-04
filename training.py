@@ -503,7 +503,7 @@ def main(_run, _config, _log):
     param_group = []
     for k,v in model.named_parameters():
         if 'cls_unit' in k:
-            if 'residual_mlp' in k:
+            if 'residual_mlp' in k or 'proto_attention' in k:
                 param_group +=[{'params':v,'lr':_config['optim']['lr'],'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
             else:
                 param_group +=[{'params':v,'lr':_config['optim']['lr']*0.0001,'momentum':_config['optim']['momentum'],'weight_decay':_config['optim']['weight_decay']}]
@@ -527,7 +527,7 @@ def main(_run, _config, _log):
     n_sub_epoches = _config['n_steps'] // _config['max_iters_per_load'] # number of times for reloading
 
 
-    log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0}
+    log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0, 'calib_loss': 0}
 
     _log.info('###### Training ######')
     if _config['freeze_encoder']:
@@ -567,7 +567,7 @@ def main(_run, _config, _log):
             optimizer.zero_grad()
             # FIXME: in the model definition, filter out the failure case where pseudolabel falls outside of image or too small to calculate a prototype
             try: 
-                query_pred, align_loss, debug_vis, assign_mats = model(support_images, support_fg_mask, support_bg_mask, query_images, isval = False, val_wsize = None)
+                query_pred, align_loss, proto_calib_loss, debug_vis, assign_mats = model(support_images, support_fg_mask, support_bg_mask, query_images, isval = False, val_wsize = None)
             except Exception as e:
                 import traceback
                 print("Faulty batch detected, skipping")
@@ -609,7 +609,7 @@ def main(_run, _config, _log):
                 b_loss = 0.0
 
             # Total loss = query CE + alignment loss + bound loss
-            loss = query_loss + align_loss + _config['bound_wt'] * b_loss
+            loss = query_loss + align_loss + _config['bound_wt'] * b_loss + _config['calib_wt'] * proto_calib_loss
         
             loss.backward()
             optimizer.step()
@@ -617,17 +617,20 @@ def main(_run, _config, _log):
             # Log loss
             q_loss_val = query_loss.detach().cpu().numpy()
             align_loss_val = align_loss.detach().cpu().numpy() if isinstance(align_loss, torch.Tensor) else align_loss
+            proto_calib_loss_val = proto_calib_loss.detach().cpu().numpy() if isinstance(proto_calib_loss, torch.Tensor) else proto_calib_loss
             if _config['use_bound']:
                 b_loss_val = b_loss.detach().cpu().numpy() if isinstance(b_loss, torch.Tensor) else 0
 
             _run.log_scalar('loss', float(q_loss_val))
             _run.log_scalar('align_loss', float(align_loss_val))
+            _run.log_scalar('calib_loss', float(proto_calib_loss_val))
             if _config['use_bound']:
                 _run.log_scalar('bound_loss', float(b_loss_val))
             log_loss['loss'] += float(q_loss_val)
             log_loss['align_loss'] += float(align_loss_val)
             if _config['use_bound']:
                 log_loss['bound_loss'] += float(b_loss_val)
+            log_loss['calib_loss'] += float(proto_calib_loss_val)
 
             # print loss and take snapshots
             if (i_iter + 1) % _config['print_interval'] == 0:
@@ -635,15 +638,17 @@ def main(_run, _config, _log):
                 loss = log_loss['loss'] / _config['print_interval']
                 align_loss = log_loss['align_loss'] / _config['print_interval']
                 bound_loss = log_loss['bound_loss'] / _config['print_interval']
+                calib_loss = log_loss['calib_loss'] / _config['print_interval']
 
                 log_loss['loss'] = 0
                 log_loss['align_loss'] = 0
                 log_loss['bound_loss'] = 0
+                log_loss['calib_loss'] = 0
 
                 if _config['use_bound']:
-                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, bound_loss: {bound_loss},')
+                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, bound_loss: {bound_loss}, calib_loss: {calib_loss}')
                 else:
-                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}')
+                    print(f'step {i_iter+1}: loss: {loss}, align_loss: {align_loss}, calib_loss: {calib_loss}')
 
             if (i_iter + 1) % _config['save_snapshot_every'] == 0 or (i_iter + 1) == _config['n_steps']:
                 _log.info('###### Taking snapshot ######')
