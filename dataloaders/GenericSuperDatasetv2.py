@@ -22,7 +22,7 @@ from util.utils import CircularList
 from scipy import ndimage
 
 class SuperpixelDataset(BaseDataset):
-    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', num_raters = 3, **kwargs):
+    def __init__(self, which_dataset, base_dir, idx_split, mode, transforms, scan_per_load, num_rep = 2, min_fg = '', nsup = 1, fix_length = None, tile_z_dim = 3, exclude_list = [], test_lbs = [], superpix_scale = 'SMALL', num_raters = 3, mild = True, **kwargs):
         """
         Pseudolabel dataset
         Args:
@@ -40,6 +40,7 @@ class SuperpixelDataset(BaseDataset):
             test_lbs:           labels to be treated as unseen classes during training
             superpix_scale:     config of superpixels
             num_raters:         number of raters for pseudolabels
+            mild:               whether to use mild augmentation
         """
 
         super(SuperpixelDataset, self).__init__(base_dir) 
@@ -58,6 +59,7 @@ class SuperpixelDataset(BaseDataset):
         self.tile_z_dim = tile_z_dim
         self.test_lbs = test_lbs
         self.num_raters = num_raters
+        self.mild = mild
 
         # find scans in the data folder
         self.nsup = nsup
@@ -520,7 +522,7 @@ class SuperpixelDataset(BaseDataset):
         if self.use_gt == False:
             if self.num_raters > 1:
                 # Generate N-1 rater styles (N-1 because rater 0 is the original)
-                rater_styles = self.generate_rater_styles(n_raters=self.num_raters - 1)  # Generate N-1 styles along with rater 0 to form N raters
+                rater_styles = self.generate_rater_styles(n_raters=self.num_raters - 1, mild=self.mild)  # Generate N-1 styles along with rater 0 to form N raters
                 
                 # Apply styles to generate multiple rater versions from the binarized mask
                 labels_t_augmented = {}

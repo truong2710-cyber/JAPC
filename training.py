@@ -486,7 +486,8 @@ def main(_run, _config, _log):
         superpix_scale = _config["superpix_scale"], 
         test_lbs = test_labels,
         fix_length = _config["max_iters_per_load"] if (data_name == 'C0_Superpix') or (data_name == 'CHAOST2_Superpix') else None,
-        num_raters=_config["num_pseudo_raters"]
+        num_raters=_config["num_pseudo_raters"],
+        mild=_config["mild_aug"]
     )
     
 

@@ -39,7 +39,7 @@ def cfg():
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 50000 # 100100
+    n_steps = 25000 # 100100
     train_milestones = 15000 # at which step to unfreeze encoder
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
@@ -59,7 +59,8 @@ def cfg():
     use_bound = False
     bound_wt = 0.5 # weight for boundary loss
     freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
-    num_pseudo_raters = 1 # number of pseudo raters during training (>=1)
+    num_pseudo_raters = 3 # number of pseudo raters during training (>=1)
+    mild_aug = False # whether to use mild augmentation for generating pseudo labels
 
     ### Validation
     z_margin = 0 
@@ -71,11 +72,11 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = None # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/93/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
-    use_mlp = False # whether to use mlp for prototype calibration in ALP module
+    use_mlp = True # whether to use mlp for prototype calibration in ALP module
 
     # SSL
     superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
