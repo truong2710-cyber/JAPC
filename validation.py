@@ -184,7 +184,7 @@ def main(_run, _config, _log):
                                   for shot_raters in support_bg_mask[0][q_part]]]
 
                 # R x 2 x H x W
-                query_pred, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
+                query_pred, _, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
                 # R x H x W
                 query_pred_bg = np.array(query_pred.argmin(dim=1).cpu())
                 query_pred = np.array(query_pred.argmax(dim=1).cpu())
