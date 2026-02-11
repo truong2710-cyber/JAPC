@@ -127,8 +127,12 @@ def cfg():
         'SABS_Superpix':{'data_dir': "./data/SABS/sabs_CT_normalized"},
         'C0_Superpix':{'data_dir': "feed your dataset path here"},
         'CHAOST2_Superpix':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized/"},
-        'CURVAS_Superpix':{'data_dir': "./data/CURVAS/curvas_CT_normalized"},
-        'CURVAS':{'data_dir': "./data/CURVAS/curvas_CT_normalized"}
+        'CURVAS_Superpix':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
+                           'train_dir': "./data/CURVAS/curvas_CT_normalized/",
+                           'test_dir': "./data/CURVAS/curvas_CT_normalized/"},
+        'CURVAS':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
+                  'train_dir': "./data/CURVAS/curvas_CT_normalized/",
+                           'test_dir': "./data/CURVAS/curvas_CT_normalized/"},
         }
 
 
