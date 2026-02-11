@@ -186,11 +186,14 @@ class Metric(object):
                 fp_all = self._stack_scan_entries(self.fp_lst[_scan]) # [sum_R of scan x num_classes]
                 fn_all = self._stack_scan_entries(self.fn_lst[_scan]) # [sum_R of scan x num_classes]
 
-                denom = tp_all + fp_all + fn_all
+                # Micro-average: sum counts across entries (rows) then compute IoU per class
+                tp_total = np.nansum(tp_all, axis=0)
+                fp_total = np.nansum(fp_all, axis=0)
+                fn_total = np.nansum(fn_all, axis=0)
+                denom_total = tp_total + fp_total + fn_total
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    iou_per_entry = tp_all / denom
-                # mean across entries (each entry is one rater-sample)
-                mIoU_class_scan = np.nanmean(iou_per_entry, axis=0)
+                    iou_per_class = tp_total / denom_total
+                mIoU_class_scan = iou_per_class
                 mIoU_class_list.append(mIoU_class_scan.take(labels))
 
             mIoU_class = np.vstack(mIoU_class_list)
@@ -203,10 +206,13 @@ class Metric(object):
             fp_all = self._stack_scan_entries(self.fp_lst[n_scan])
             fn_all = self._stack_scan_entries(self.fn_lst[n_scan])
 
-            denom = tp_all + fp_all + fn_all
+            tp_total = np.nansum(tp_all, axis=0)
+            fp_total = np.nansum(fp_all, axis=0)
+            fn_total = np.nansum(fn_all, axis=0)
+            denom_total = tp_total + fp_total + fn_total
             with np.errstate(divide='ignore', invalid='ignore'):
-                iou_per_entry = tp_all / denom
-            mIoU_class = np.nanmean(iou_per_entry, axis=0).take(labels)
+                iou_per_class = tp_total / denom_total
+            mIoU_class = iou_per_class.take(labels)
             mIoU = mIoU_class.mean()
 
             return mIoU_class, mIoU
@@ -230,10 +236,15 @@ class Metric(object):
                 fp_all = self._stack_scan_entries(self.fp_lst[_scan])
                 fn_all = self._stack_scan_entries(self.fn_lst[_scan])
 
-                denom = 2 * tp_all + fp_all + fn_all
+                # Micro-average: sum counts across entries then compute Dice per class
+                tp_total = np.nansum(tp_all, axis=0)
+                fp_total = np.nansum(fp_all, axis=0)
+                fn_total = np.nansum(fn_all, axis=0)
+
+                denom_total = 2 * tp_total + fp_total + fn_total
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    dice_per_entry = 2 * tp_all / denom
-                mDice_class_scan = np.nanmean(dice_per_entry, axis=0)
+                    dice_per_class = 2 * tp_total / denom_total
+                mDice_class_scan = dice_per_class
                 mDice_class_list.append(mDice_class_scan.take(labels))
 
             mDice_class = np.vstack(mDice_class_list)
@@ -250,10 +261,14 @@ class Metric(object):
             fp_all = self._stack_scan_entries(self.fp_lst[n_scan])
             fn_all = self._stack_scan_entries(self.fn_lst[n_scan])
 
-            denom = 2 * tp_all + fp_all + fn_all
+            tp_total = np.nansum(tp_all, axis=0)
+            fp_total = np.nansum(fp_all, axis=0)
+            fn_total = np.nansum(fn_all, axis=0)
+
+            denom_total = 2 * tp_total + fp_total + fn_total
             with np.errstate(divide='ignore', invalid='ignore'):
-                dice_per_entry = 2 * tp_all / denom
-            mDice_class = np.nanmean(dice_per_entry, axis=0).take(labels)
+                dice_per_class = 2 * tp_total / denom_total
+            mDice_class = dice_per_class.take(labels)
             mDice = mDice_class.mean()
 
             return mDice_class, mDice
@@ -278,12 +293,16 @@ class Metric(object):
                 fp_all = self._stack_scan_entries(self.fp_lst[_scan])
                 fn_all = self._stack_scan_entries(self.fn_lst[_scan])
 
+                # Micro-average: sum counts across entries then compute precision/recall per class
+                tp_total = np.nansum(tp_all, axis=0)
+                fp_total = np.nansum(fp_all, axis=0)
+                fn_total = np.nansum(fn_all, axis=0)
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    prec_per_entry = tp_all / (tp_all + fp_all)
-                    rec_per_entry = tp_all / (tp_all + fn_all)
+                    prec_per_class = tp_total / (tp_total + fp_total)
+                    rec_per_class = tp_total / (tp_total + fn_total)
 
-                mPrec_class_scan = np.nanmean(prec_per_entry, axis=0)
-                mRec_class_scan = np.nanmean(rec_per_entry, axis=0)
+                mPrec_class_scan = prec_per_class
+                mRec_class_scan = rec_per_class
                 mPrec_list.append(mPrec_class_scan.take(labels))
                 mRec_list.append(mRec_class_scan.take(labels))
 
@@ -303,14 +322,17 @@ class Metric(object):
             fp_all = self._stack_scan_entries(self.fp_lst[n_scan])
             fn_all = self._stack_scan_entries(self.fn_lst[n_scan])
 
+            tp_total = np.nansum(tp_all, axis=0)
+            fp_total = np.nansum(fp_all, axis=0)
+            fn_total = np.nansum(fn_all, axis=0)
             with np.errstate(divide='ignore', invalid='ignore'):
-                prec_per_entry = tp_all / (tp_all + fp_all)
-                rec_per_entry = tp_all / (tp_all + fn_all)
+                prec_per_class = tp_total / (tp_total + fp_total)
+                rec_per_class = tp_total / (tp_total + fn_total)
 
-            mPrec_class = np.nanmean(prec_per_entry, axis=0).take(labels)
+            mPrec_class = prec_per_class.take(labels)
             mPrec = mPrec_class.mean()
 
-            mRec_class = np.nanmean(rec_per_entry, axis=0).take(labels)
+            mRec_class = rec_per_class.take(labels)
             mRec = mRec_class.mean()
 
             return (mPrec_class, mPrec, mRec_class, mRec)
@@ -332,22 +354,20 @@ class Metric(object):
                 if tp_all.size == 0:
                     mIoU_class_list.append(np.array([np.nan, np.nan]))
                     continue
-
-                # background per-entry
-                bg_tp = tp_all[:, 0]
-                bg_fp = fp_all[:, 0]
-                bg_fn = fn_all[:, 0]
-                # foreground aggregated across classes per-entry
-                fg_tp = np.nansum(tp_all[:, 1:], axis=1)
-                fg_fp = np.nansum(fp_all[:, 1:], axis=1)
-                fg_fn = np.nansum(fn_all[:, 1:], axis=1)
+                # Micro-average: sum counts across entries then compute binary IoU per scan
+                bg_tp = np.nansum(tp_all[:, 0])
+                bg_fp = np.nansum(fp_all[:, 0])
+                bg_fn = np.nansum(fn_all[:, 0])
+                fg_tp = np.nansum(tp_all[:, 1:])
+                fg_fp = np.nansum(fp_all[:, 1:])
+                fg_fn = np.nansum(fn_all[:, 1:])
 
                 with np.errstate(divide='ignore', invalid='ignore'):
                     iou_bg = bg_tp / (bg_tp + bg_fp + bg_fn)
                     iou_fg = fg_tp / (fg_tp + fg_fp + fg_fn)
 
-                mIoU_bg = self._safe_nanmean_1d(iou_bg)
-                mIoU_fg = self._safe_nanmean_1d(iou_fg)
+                mIoU_bg = float(iou_bg) if not np.isnan(iou_bg) else np.nan
+                mIoU_fg = float(iou_fg) if not np.isnan(iou_fg) else np.nan
                 mIoU_class_list.append(np.array([mIoU_bg, mIoU_fg]))
 
             mIoU_class = np.vstack(mIoU_class_list)
@@ -363,19 +383,19 @@ class Metric(object):
             if tp_all.size == 0:
                 return np.array([np.nan, np.nan]), np.nan
 
-            bg_tp = tp_all[:, 0]
-            bg_fp = fp_all[:, 0]
-            bg_fn = fn_all[:, 0]
-            fg_tp = np.nansum(tp_all[:, 1:], axis=1)
-            fg_fp = np.nansum(fp_all[:, 1:], axis=1)
-            fg_fn = np.nansum(fn_all[:, 1:], axis=1)
+            bg_tp = np.nansum(tp_all[:, 0])
+            bg_fp = np.nansum(fp_all[:, 0])
+            bg_fn = np.nansum(fn_all[:, 0])
+            fg_tp = np.nansum(tp_all[:, 1:])
+            fg_fp = np.nansum(fp_all[:, 1:])
+            fg_fn = np.nansum(fn_all[:, 1:])
 
             with np.errstate(divide='ignore', invalid='ignore'):
                 iou_bg = bg_tp / (bg_tp + bg_fp + bg_fn)
                 iou_fg = fg_tp / (fg_tp + fg_fp + fg_fn)
 
-            mIoU_bg = self._safe_nanmean_1d(iou_bg)
-            mIoU_fg = self._safe_nanmean_1d(iou_fg)
+            mIoU_bg = float(iou_bg) if not np.isnan(iou_bg) else np.nan
+            mIoU_fg = float(iou_fg) if not np.isnan(iou_fg) else np.nan
             mIoU_class = np.array([mIoU_bg, mIoU_fg])
             mIoU = np.nanmean(mIoU_class)
 
