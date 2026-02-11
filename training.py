@@ -475,7 +475,7 @@ def main(_run, _config, _log):
 
     tr_parent = SuperpixelDataset( # base dataset
         which_dataset = baseset_name, 
-        base_dir = _config['path'][data_name]['data_dir'], 
+        base_dir = _config['path'][data_name], 
         idx_split = _config['eval_fold'], 
         mode = 'train',
         min_fg = str(_config["min_fg_data"]), # dummy entry for superpixel dataset

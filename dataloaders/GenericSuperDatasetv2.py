@@ -43,6 +43,17 @@ class SuperpixelDataset(BaseDataset):
             mild:               whether to use mild augmentation
         """
 
+        # allow overriding dataset directory per split using train_dir/test_dir kwargs
+        self._use_explicit_dirs = True
+        if isinstance(base_dir, dict):
+            if mode == 'train' and 'train_dir' in base_dir:
+                base_dir = base_dir['train_dir']
+            elif mode == 'val' and 'test_dir' in base_dir:
+                base_dir = base_dir['test_dir']
+            else:
+                base_dir = base_dir.get('data_dir', '')
+                self._use_explicit_dirs = False
+
         super(SuperpixelDataset, self).__init__(base_dir) 
 
         self.img_modality = DATASET_INFO[which_dataset]['MODALITY']
@@ -308,6 +319,10 @@ class SuperpixelDataset(BaseDataset):
         Args:
             idx_split: index for spliting cross-validation folds
         """
+        # If explicit train/test directories were provided, do not perform cross-fold splitting
+        if getattr(self, '_use_explicit_dirs', False):
+            return list(self.img_pids)
+
         val_ids  = copy.deepcopy(self.img_pids[self.sep[idx_split]: self.sep[idx_split + 1] + self.nsup])
         if mode == 'train':
             return [ ii for ii in self.img_pids if ii not in val_ids ]

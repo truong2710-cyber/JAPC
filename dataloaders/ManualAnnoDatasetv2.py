@@ -37,6 +37,18 @@ class ManualAnnoDataset(BaseDataset):
             exclude_list:       Labels to be excluded
             extern_normalize_function:  normalization function used for data pre-processing  
         """
+
+        # allow overriding dataset directory per split using train_dir/test_dir kwargs
+        self._use_explicit_dirs = True
+        if isinstance(base_dir, dict):
+            if mode == 'train' and 'train_dir' in base_dir:
+                base_dir = base_dir['train_dir']
+            elif mode == 'val' and 'test_dir' in base_dir:
+                base_dir = base_dir['test_dir']
+            else:
+                base_dir = base_dir.get('data_dir', '')
+                self._use_explicit_dirs = False
+
         super(ManualAnnoDataset, self).__init__(base_dir)
         self.img_modality = DATASET_INFO[which_dataset]['MODALITY']
         self.sep = DATASET_INFO[which_dataset]['_SEP']
@@ -89,6 +101,10 @@ class ManualAnnoDataset(BaseDataset):
         self.update_subclass_lookup()
 
     def get_scanids(self, mode, idx_split):
+        # If explicit train/test directories were provided, do not perform cross-fold splitting
+        if getattr(self, '_use_explicit_dirs', False):
+            return list(self.img_pids)
+
         val_ids  = copy.deepcopy(self.img_pids[self.sep[idx_split]: self.sep[idx_split + 1] + self.nsup])
         self.potential_support_sid = val_ids[-self.nsup:] # this is actual file scan id, not index
         if mode == 'train':

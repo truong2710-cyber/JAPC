@@ -85,7 +85,7 @@ def main(_run, _config, _log):
     if baseset_name == 'SABS' or baseset_name == 'CURVAS': # for CT we need to know statistics of 
         tr_parent = SuperpixelDataset( # base dataset
             which_dataset = baseset_name,
-            base_dir=_config['path'][data_name]['data_dir'],
+            base_dir=_config['path'][data_name],
             idx_split = _config['eval_fold'],
             mode='train',
             min_fg=str(_config["min_fg_data"]), # dummy entry for superpixel dataset
@@ -104,7 +104,7 @@ def main(_run, _config, _log):
 
     te_dataset, te_parent = med_fewshot_val(
         dataset_name = baseset_name,
-        base_dir=_config['path'][baseset_name]['data_dir'],
+        base_dir=_config['path'][baseset_name],
         idx_split = _config['eval_fold'],
         scan_per_load = _config['scan_per_load'],
         act_labels=test_labels,
