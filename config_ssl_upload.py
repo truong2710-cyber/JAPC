@@ -73,7 +73,7 @@ def cfg():
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/106/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/152/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
@@ -128,11 +128,11 @@ def cfg():
         'C0_Superpix':{'data_dir': "feed your dataset path here"},
         'CHAOST2_Superpix':{'data_dir': "./data/CHAOST2/chaos_MR_T2_normalized/"},
         'CURVAS_Superpix':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
-                           'train_dir': "./data/CURVAS/curvas_CT_normalized/",
-                           'test_dir': "./data/CURVAS/curvas_CT_normalized/"},
+                           'train_dir': "./data/CURVAS/curvas_CT_normalized_train/",
+                           'test_dir': "./data/CURVAS/curvas_CT_normalized_test/"},
         'CURVAS':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
-                  'train_dir': "./data/CURVAS/curvas_CT_normalized/",
-                           'test_dir': "./data/CURVAS/curvas_CT_normalized/"},
+                  'train_dir': "./data/CURVAS/curvas_CT_normalized_train/",
+                           'test_dir': "./data/CURVAS/curvas_CT_normalized_test/"},
         }
 
 
