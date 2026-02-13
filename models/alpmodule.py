@@ -204,20 +204,16 @@ class MultiProtoAsConv(nn.Module):
                     per_rater_assigns.append(torch.zeros(1, qry.size(2), qry.size(3)).float())
                     raw_sims_list.append(None)
                     continue
-                pro_n = self.safe_norm(cal)
-                dists = F.conv2d(qry_n, pro_n[..., None, None]) * 20
-                pred = torch.sum(F.softmax(dists, dim=1) * dists, dim=1, keepdim=True)
-                assign = dists.argmax(dim=1).float().detach()
-                per_rater_preds.append(pred)
-                per_rater_assigns.append(assign)
-                raw_sims_list.append(dists.clone().detach())
+
+                pred = F.cosine_similarity(qry, cal[..., None, None], dim=1, eps = 1e-4) * 20.0 # [1, h, w]
+                per_rater_preds.append(pred.unsqueeze(1)) # [1, 1, h, w]
 
             pred_stack = torch.cat(per_rater_preds, dim=0)
-            vis_dict = {'proto_assign': torch.cat(per_rater_assigns, dim=0)}
+            vis_dict = {'proto_assign': None}
             if proto_calib_loss is not None:
                 vis_dict['proto_calib_loss'] = proto_calib_loss
             if vis_sim:
-                vis_dict['raw_local_sims'] = raw_sims_list
+                vis_dict['raw_local_sims'] = pred_stack
             return pred_stack, per_rater_assigns, vis_dict
 
         # no need to merge with gridconv+
