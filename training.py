@@ -2,6 +2,7 @@
 Training the model
 Extended from original implementation of PANet by Wang et al.
 """
+from math import ceil
 import os
 import shutil
 import torch
@@ -532,8 +533,7 @@ def main(_run, _config, _log):
 
 
     i_iter = 0  # total number of iteration
-    n_sub_epoches = _config['n_steps'] // _config['max_iters_per_load'] # number of times for reloading
-
+    n_sub_epoches = ceil(_config['n_steps'] / min(_config['max_iters_per_load'], len(trainloader))) # number of times for reloading
 
     log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0, 'calib_loss': 0}
 

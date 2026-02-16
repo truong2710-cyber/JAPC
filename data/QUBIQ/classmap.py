@@ -7,17 +7,18 @@ import SimpleITK as sitk
 # -------------------------
 # Config
 # -------------------------
-DATA_DIR = "qubiq_normalized/brain-tumor/task01/Training/"
+TASK_NAME = "prostate/task01" 
+DATA_DIR = f"qubiq_normalized/{TASK_NAME}/Validation/"
 OUT_DIR = DATA_DIR
 
-NUM_RATERS = 3  # number of raters per case 
+NUM_RATERS = 6  # number of raters per case 
 RATERS = list(range(1, NUM_RATERS + 1))  # e.g. [1,2,3] for raters 1 to 3
 MIN_TP = 1  # minimum pixels of class in a slice to count
 
 # IMPORTANT: set your dataset's label names in index order.
 # Example for your dataset (edit this to match your labels):
 # 0=background, 1=pancreas, 2=kidney, 3=liver
-LABEL_NAME = ["BGD", "BRAIN_TUMOR_1"]
+LABEL_NAME = ["BGD", "PROSTATE_1"]
 
 # -------------------------
 # Helpers
