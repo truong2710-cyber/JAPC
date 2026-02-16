@@ -83,6 +83,18 @@ DATASET_INFO = {
                 0: set([]),
                 1: set([1]), # only brain tumor as testing class, no training class
             }
+    },
+
+    "QUBIQ_PROSTATE_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PROSTATE_1"],
+            '_SEP': [0, 8, 16, 24, 32, 40, 48],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only prostate as testing class, no training class
+            }
     }
 }
 

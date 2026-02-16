@@ -467,6 +467,8 @@ def main(_run, _config, _log):
         baseset_name = 'QUBIQ_BRAIN_GROWTH'
     elif data_name == 'QUBIQ_BRAIN_TUMOR_1_Superpix':
         baseset_name = 'QUBIQ_BRAIN_TUMOR_1'
+    elif data_name == 'QUBIQ_PROSTATE_1_Superpix':
+        baseset_name = 'QUBIQ_PROSTATE_1'
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 

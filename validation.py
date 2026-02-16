@@ -78,6 +78,9 @@ def main(_run, _config, _log):
     elif data_name == 'QUBIQ_BRAIN_TUMOR_1_Superpix':
         baseset_name = 'QUBIQ_BRAIN_TUMOR_1'
         max_label = 1
+    elif data_name == 'QUBIQ_PROSTATE_1_Superpix':
+        baseset_name = 'QUBIQ_PROSTATE_1'
+        max_label = 1
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
