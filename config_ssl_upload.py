@@ -35,7 +35,7 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix
+    dataset = 'QUBIQ_BRAIN_TUMOR_1_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
@@ -133,8 +133,25 @@ def cfg():
         'CURVAS':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
                   'train_dir': "./data/CURVAS/curvas_CT_normalized_train/",
                            'test_dir': "./data/CURVAS/curvas_CT_normalized_test/"},
-        }
-
+        'CURVASPDAC_Superpix':{'data_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized",
+                           'train_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_train/",
+                           'test_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_test/"},
+        'CURVASPDAC':{'data_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized",
+                  'train_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_train/",
+                           'test_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_train/"},
+        'QUBIQ_BRAIN_GROWTH_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/"},
+        'QUBIQ_BRAIN_GROWTH':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/"}, 
+        'QUBIQ_BRAIN_TUMOR_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/"},
+        'QUBIQ_BRAIN_TUMOR_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/"},
+    }
 
 @ex.config_hook
 def add_observer(config, command_name, logger):

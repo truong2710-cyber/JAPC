@@ -461,6 +461,12 @@ def main(_run, _config, _log):
         baseset_name = 'CHAOST2'
     elif data_name == 'CURVAS_Superpix':
         baseset_name = 'CURVAS'
+    elif data_name == 'CURVASPDAC_Superpix':
+        baseset_name = 'CURVASPDAC'
+    elif data_name == 'QUBIQ_BRAIN_GROWTH_Superpix':
+        baseset_name = 'QUBIQ_BRAIN_GROWTH'
+    elif data_name == 'QUBIQ_BRAIN_TUMOR_1_Superpix':
+        baseset_name = 'QUBIQ_BRAIN_TUMOR_1'
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
