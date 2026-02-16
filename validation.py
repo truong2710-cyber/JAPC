@@ -210,7 +210,7 @@ def main(_run, _config, _log):
 
                 ii += 1
                 # now check data format
-                if sample_batched["is_end"]:
+                if sample_batched["is_end"] or sample_batched['z_min'] == sample_batched['z_max']: # if this is the last chunck of the scan, or this scan only has one chunck (i.e. z_min == z_max), then we can add the prediction to buffer
                     if _config['dataset'] != 'C0':
                         _lb_buffer[_scan_id] = _pred.transpose(2,0,1) # H, W, Z -> to Z H W
                     else:

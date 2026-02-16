@@ -35,11 +35,11 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'QUBIQ_BRAIN_TUMOR_1_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
+    dataset = 'QUBIQ_BRAIN_GROWTH_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 25000 # 100100
+    n_steps = 25000*10 # 100100 500000
     train_milestones = 15000 # at which step to unfreeze encoder
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
@@ -60,7 +60,7 @@ def cfg():
     bound_wt = 0.1 # weight for boundary loss
     calib_wt = 1 # weight for prototype calibration loss
     freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
-    num_pseudo_raters = 3 # number of pseudo raters during training (>=1)
+    num_pseudo_raters = 7 # number of pseudo raters during training (>=1)
     mild_aug = False # whether to use mild augmentation for generating pseudo labels
 
     ### Validation
@@ -68,12 +68,12 @@ def cfg():
     eval_fold = 0 # which fold for 5 fold cross validation
     support_idx=[-1] # indicating which scan is used as support in testing. 
     val_wsize=2 # L_H, L_W in testing
-    n_sup_part = 3 # number of chuncks in testing
+    n_sup_part = 1 # number of chuncks in testing
 
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_0_1shot/152/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = 'runs/mySSL__QUBIQ_BRAIN_GROWTH_Superpix_sets_0_1shot/1/snapshots/9000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future

@@ -456,20 +456,21 @@ class SuperpixelDataset(BaseDataset):
                 self.scan_z_idx[scan_id][ii] = glb_idx
                 glb_idx += 1
 
-            ii += 1 # last slice of a 3D volume
-            out_list.append( {"img": img[..., ii: ii + 1],
-                           "lbs":{rater_id: lb_single[..., ii: ii+ 1] for rater_id, lb_single in lbs_dict.items()},
-                           "is_start": False,
-                           "is_end": True,
-                           "sup_max_cls": lb[..., ii: ii + 1].max(),
-                           "nframe": -1,
-                           "scan_id": scan_id,
-                           "z_id": ii,
-                           "available_rater_ids": list(lbs_dict.keys())
-                           })
+            if img.shape[-1] > 1:
+                ii += 1 # last slice of a 3D volume
+                out_list.append( {"img": img[..., ii: ii + 1],
+                            "lbs":{rater_id: lb_single[..., ii: ii+ 1] for rater_id, lb_single in lbs_dict.items()},
+                            "is_start": False,
+                            "is_end": True,
+                            "sup_max_cls": lb[..., ii: ii + 1].max(),
+                            "nframe": -1,
+                            "scan_id": scan_id,
+                            "z_id": ii,
+                            "available_rater_ids": list(lbs_dict.keys())
+                            })
 
-            self.scan_z_idx[scan_id][ii] = glb_idx
-            glb_idx += 1
+                self.scan_z_idx[scan_id][ii] = glb_idx
+                glb_idx += 1
 
         return out_list
 
