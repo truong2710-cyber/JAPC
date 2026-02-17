@@ -72,14 +72,8 @@ def main(_run, _config, _log):
     elif data_name == 'CURVASPDAC_Superpix':
         baseset_name = 'CURVASPDAC'
         max_label = 1
-    elif data_name == 'QUBIQ_BRAIN_GROWTH_Superpix':
-        baseset_name = 'QUBIQ_BRAIN_GROWTH'
-        max_label = 1
-    elif data_name == 'QUBIQ_BRAIN_TUMOR_1_Superpix':
-        baseset_name = 'QUBIQ_BRAIN_TUMOR_1'
-        max_label = 1
-    elif data_name == 'QUBIQ_PROSTATE_1_Superpix':
-        baseset_name = 'QUBIQ_PROSTATE_1'
+    elif data_name.startswith('QUBIQ'):
+        baseset_name = data_name.replace('_Superpix', '')
         max_label = 1
     else:
         raise ValueError(f'Dataset: {data_name} not found')
@@ -94,7 +88,7 @@ def main(_run, _config, _log):
     _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
     _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
 
-    if baseset_name == 'SABS' or baseset_name == 'CURVAS': # for CT we need to know statistics of 
+    if DATASET_INFO[baseset_name]['MODALITY'] == 'CT': # for CT we need to know statistics of 
         tr_parent = SuperpixelDataset( # base dataset
             which_dataset = baseset_name,
             base_dir=_config['path'][data_name],

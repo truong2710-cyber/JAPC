@@ -464,12 +464,8 @@ def main(_run, _config, _log):
         baseset_name = 'CURVAS'
     elif data_name == 'CURVASPDAC_Superpix':
         baseset_name = 'CURVASPDAC'
-    elif data_name == 'QUBIQ_BRAIN_GROWTH_Superpix':
-        baseset_name = 'QUBIQ_BRAIN_GROWTH'
-    elif data_name == 'QUBIQ_BRAIN_TUMOR_1_Superpix':
-        baseset_name = 'QUBIQ_BRAIN_TUMOR_1'
-    elif data_name == 'QUBIQ_PROSTATE_1_Superpix':
-        baseset_name = 'QUBIQ_PROSTATE_1'
+    elif data_name.startswith('QUBIQ'):
+        baseset_name = data_name.replace('_Superpix', '')
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
