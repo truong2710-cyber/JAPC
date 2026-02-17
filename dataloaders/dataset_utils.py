@@ -63,7 +63,7 @@ DATASET_INFO = {
 
     "QUBIQ_BRAIN_GROWTH": {
             'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
-            'REAL_LABEL_NAME': ["BGD", "BRAIN_GROWTH"],
+            'REAL_LABEL_NAME': ["BGD", "BRAIN_GROWTH_1"],
             '_SEP': [0, 7, 14, 21, 28, 34],
             'MODALITY': 'MR',
             'LABEL_GROUP':{

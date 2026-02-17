@@ -28,12 +28,10 @@ import SimpleITK as sitk
 # -------------------------
 # Config
 # -------------------------
-TASK_NAME = "brain-tumor/task01"  # for naming output folder; no effect on processing
-IN_FOLDER = f"tmp_normalized_qubiq/{TASK_NAME}/Training"
-OUT_FOLDER = f"qubiq_normalized/{TASK_NAME}/Training"
+TASK_NAME = "all"  # for naming output folder; no effect on processing
+IN_FOLDER = "tmp_normalized_qubiq"
+OUT_FOLDER = "qubiq_normalized"
 
-NUM_RATERS = 3      # can be different per task
-RATERS = list(range(1, NUM_RATERS + 1)) 
 BD_BIAS = 0          # crop border in axial plane (x/y dims)
 TARGET_HW = 256       # target in-plane size after resampling
 TARGET_Z_SPACING = None  # <-- NEW: desired z spacing (mm)
@@ -337,4 +335,64 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # If TASK_NAME == 'all', iterate all task folders under the IN_FOLDER root and all splits
+    if TASK_NAME == "all":
+        # derive base input root from the configured IN_FOLDER (assumes IN_FOLDER = <root>/...)
+        base_root = IN_FOLDER
+        out_base = OUT_FOLDER
+
+        task_dirs = sorted([d for d in glob.glob(os.path.join(base_root, "*")) if os.path.isdir(d)])
+        if not task_dirs:
+            raise RuntimeError(f"No task folders found under: {base_root}")
+
+        for td in task_dirs:
+            # handle hierarchy: task/subtask/split
+            subtask_dirs = sorted([d for d in glob.glob(os.path.join(td, "*")) if os.path.isdir(d)])
+            if not subtask_dirs:
+                # no subtask level, treat td as holding split folders
+                subtask_dirs = [td]
+
+            for st in subtask_dirs:
+                # find split folders under subtask (e.g., Training, Validation)
+                split_dirs = sorted([d for d in glob.glob(os.path.join(st, "*")) if os.path.isdir(d)])
+                if not split_dirs:
+                    # no split level, treat st as the split folder
+                    split_dirs = [st]
+
+                for sd in split_dirs:
+                    in_folder = sd
+                    out_folder = os.path.join(out_base, os.path.relpath(sd, base_root))
+
+                    print(f"\nProcessing folder: {in_folder} -> {out_folder}")
+
+                    # auto-detect raters by scanning label files recursively under the split folder
+                    label_files = glob.glob(os.path.join(in_folder, "**", "label_*_*.nii*"), recursive=True)
+                    rater_ids = set()
+                    import re as _re
+                    for lf in label_files:
+                        m = _re.search(r"label_\d+_(\d+)\.nii(\.gz)?$", os.path.basename(lf))
+                        if m:
+                            try:
+                                rater_ids.add(int(m.group(1)))
+                            except ValueError:
+                                continue
+
+                    if not rater_ids:
+                        print(f"[WARN] No label files found in {in_folder}; skipping")
+                        continue
+
+                    rlist = sorted(rater_ids)
+
+                    # set globals for main()
+                    IN_FOLDER = in_folder
+                    OUT_FOLDER = out_folder
+                    NUM_RATERS = max(rlist)
+                    RATERS = rlist
+
+                    os.makedirs(OUT_FOLDER, exist_ok=True)
+                    try:
+                        main()
+                    except Exception as e:
+                        print(f"[ERROR] Processing {in_folder} failed: {e}")
+    else:
+        main()

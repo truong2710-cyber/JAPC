@@ -22,16 +22,11 @@ import SimpleITK as sitk
 # -------------------------
 # Config (edit these)
 # -------------------------
-IN_ROOT = "./training_data_v3_QC"                 # root that contains task folders
-TASK_NAME = "prostate"           # run one task at a time
-SPLIT = "Training"                  # "Training" or "Validation"
+TASK_NAME = "all"           # run one task at a time
 OUT_ROOT = "./tmp_normalized_qubiq" # output root
 
-# Normalization strategy:
-if TASK_NAME in ["prostate", "brain-tumor", "brain-growth"]:
-    IS_CT = False
-else:
-    IS_CT = True
+# # Normalization strategy:
+# IS_CT = None
 
 # CT window (HU)
 # Common defaults; adjust per task if needed
@@ -131,8 +126,22 @@ def parse_task_seg(filepath: str):
 # -------------------------
 # Main
 # -------------------------
-def main():
-    in_split_root = os.path.join(IN_ROOT, TASK_NAME, SPLIT)
+def main(task_name: str = None, split: str = None):
+    """Process one task/split. If `task_name` or `split` is None the module
+    defaults (`TASK_NAME`, `SPLIT`) are used.
+    """
+    # determine task and split to use
+    task = task_name if task_name is not None else TASK_NAME
+    split_name = split if split is not None else SPLIT
+
+    # update IS_CT based on task (keep as global for intensity_normalize)
+    global IS_CT
+    if task in ["prostate", "brain-tumor", "brain-growth"]:
+        IS_CT = False
+    else:
+        IS_CT = True
+
+    in_split_root = os.path.join(IN_ROOT, task, split_name)
     case_dirs = sorted([p for p in glob.glob(os.path.join(in_split_root, "*")) if os.path.isdir(p)])
     if not case_dirs:
         raise RuntimeError(f"No case folders found under: {in_split_root}")
@@ -163,7 +172,7 @@ def main():
 
         # read image and define reference geometry
         img_obj = sitk.ReadImage(img_path)
-        if TASK_NAME == "brain-tumor":
+        if task == "brain-tumor":
             img_ref = extract_first_slice_as_2d(img_obj)  # enforce 2D
         else:
             img_ref = img_obj
@@ -173,7 +182,7 @@ def main():
         # save per subtask folder
         for task_id, items in sorted(labels_by_task.items()):
             subtask_name = f"task{task_id:02d}"
-            out_dir = os.path.join(OUT_ROOT, TASK_NAME, subtask_name, SPLIT)
+            out_dir = os.path.join(OUT_ROOT, task, subtask_name, split_name)
             ensure_dir(out_dir)
 
             # save image into this subtask folder
@@ -197,8 +206,44 @@ def main():
 
         reindex += 1
 
-    print(f"\nDone. Processed {reindex} cases.")
+    print(f"\nDone. Processed {reindex} cases for task={task} split={split_name}.")
+
+
+def process_all_tasks(IN_ROOT, SPLIT):
+    """Discover all task folders under `IN_ROOT` and run `main` for each split
+    folder found under the task (e.g., Training/Validation).
+    """
+    task_folders = sorted([p for p in glob.glob(os.path.join(IN_ROOT, "*")) if os.path.isdir(p)])
+    if not task_folders:
+        raise RuntimeError(f"No task folders found under IN_ROOT={IN_ROOT}")
+
+    for tf in task_folders:
+        task = os.path.basename(tf)
+        # find splits inside task folder (directories)
+        splits = sorted([os.path.basename(p) for p in glob.glob(os.path.join(tf, "*")) if os.path.isdir(p)])
+        if not splits:
+            # if no splits, try calling main() with default SPLIT
+            try:
+                main(task_name=task, split=SPLIT)
+            except Exception as e:
+                print(f"[WARN] Failed processing {task} with default split {SPLIT}: {e}")
+            continue
+
+        for sp in splits:
+            try:
+                main(task_name=task, split=sp)
+            except Exception as e:
+                print(f"[WARN] Failed processing {task}/{sp}: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    # If TASK_NAME is set to 'all' run over all tasks; otherwise run single task.
+    if TASK_NAME == "all":
+        for IN_ROOT in ['training_data_v3_QC', 'validation_data_qubiq2021_QC']:
+            if 'training' in IN_ROOT.lower():
+                SPLIT = "Training"
+            elif 'validation' in IN_ROOT.lower():
+                SPLIT = "Validation"
+            process_all_tasks(IN_ROOT, SPLIT)
+    else:
+        raise NotImplementedError("Currently only TASK_NAME='all' is supported. To run a single task, set TASK_NAME to the desired task and adjust the main() function to call with that task and split directly.")
