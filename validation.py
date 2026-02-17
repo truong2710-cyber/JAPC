@@ -69,6 +69,12 @@ def main(_run, _config, _log):
     elif data_name == 'CURVAS_Superpix':
         baseset_name = 'CURVAS'
         max_label = 3
+    elif data_name == 'CURVASPDAC_Superpix':
+        baseset_name = 'CURVASPDAC'
+        max_label = 1
+    elif data_name.startswith('QUBIQ'):
+        baseset_name = data_name.replace('_Superpix', '')
+        max_label = 1
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
@@ -82,7 +88,7 @@ def main(_run, _config, _log):
     _log.info(f'###### Labels excluded in training : {[lb for lb in _config["exclude_cls_list"]]} ######')
     _log.info(f'###### Unseen labels evaluated in testing: {[lb for lb in test_labels]} ######')
 
-    if baseset_name == 'SABS' or baseset_name == 'CURVAS': # for CT we need to know statistics of 
+    if DATASET_INFO[baseset_name]['MODALITY'] == 'CT': # for CT we need to know statistics of 
         tr_parent = SuperpixelDataset( # base dataset
             which_dataset = baseset_name,
             base_dir=_config['path'][data_name],
@@ -201,7 +207,7 @@ def main(_run, _config, _log):
 
                 ii += 1
                 # now check data format
-                if sample_batched["is_end"]:
+                if sample_batched["is_end"] or sample_batched['z_min'] == sample_batched['z_max']: # if this is the last chunck of the scan, or this scan only has one chunck (i.e. z_min == z_max), then we can add the prediction to buffer
                     if _config['dataset'] != 'C0':
                         _lb_buffer[_scan_id] = _pred.transpose(2,0,1) # H, W, Z -> to Z H W
                     else:
@@ -255,5 +261,3 @@ def main(_run, _config, _log):
 
     _log.info(f'End of validation')
     return 1
-
-

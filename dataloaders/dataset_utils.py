@@ -47,6 +47,138 @@ DATASET_INFO = {
                 0: set([1, 3]), # upper_abdomen: pancreas + liver as training, kidneys are testing
                 1: set([2]), # lower_abdomen
                     }
+    },
+
+    "CURVASPDAC": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PDAC"],
+            '_SEP': [0, 8, 16, 24, 32, 40],
+            'MODALITY': 'CT',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only PDAC as testing class, no training class
+            }
+    },
+
+    "QUBIQ_BRAIN_GROWTH_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "BRAIN_GROWTH_1"],
+            '_SEP': [0, 7, 14, 21, 28, 34],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only brain growth as testing class, no training class
+            }
+    },
+    
+    "QUBIQ_BRAIN_TUMOR_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "BRAIN_TUMOR_1"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only brain tumor as testing class, no training class
+            }
+    },
+
+    "QUBIQ_BRAIN_TUMOR_2": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "BRAIN_TUMOR_2"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only brain tumor as testing class, no training class
+            }
+    },
+
+    "QUBIQ_BRAIN_TUMOR_3": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "BRAIN_TUMOR_3"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only brain tumor as testing class, no training class
+            }
+    },
+
+    "QUBIQ_KIDNEY_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "KIDNEY_1"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'CT',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only kidney as testing class, no training class
+            }
+    },
+
+    "QUBIQ_PANCREAS_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PANCREAS_1"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'CT',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only pancreas as testing class, no training class
+            }
+    },
+
+    "QUBIQ_PANCREATIC_LESION_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PANCREATIC_LESION_1"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'CT',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only pancreatic lesion as testing class, no training class
+            }
+    },
+
+    "QUBIQ_PANCREATIC_LESION_2": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PANCREATIC_LESION_2"],
+            '_SEP': [0, 7, 14, 21, 28],
+            'MODALITY': 'CT',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only pancreatic lesion as testing class, no training class
+            }
+    },
+
+    "QUBIQ_PROSTATE_1": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PROSTATE_1"],
+            '_SEP': [0, 8, 16, 24, 32, 40, 48],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only prostate as testing class, no training class
+            }
+    },
+
+    "QUBIQ_PROSTATE_2": {
+            'PSEU_LABEL_NAME': ["BGD", "SUPFG"],
+            'REAL_LABEL_NAME': ["BGD", "PROSTATE_2"],
+            '_SEP': [0, 8, 16, 24, 32, 40, 48],
+            'MODALITY': 'MR',
+            'LABEL_GROUP':{
+                'pa_all': set([1]),
+                0: set([]),
+                1: set([1]), # only prostate as testing class, no training class
+            }
     }
 }
 
@@ -120,5 +252,3 @@ def get_normalize_op(modality, fids):
             return (x_in - ct_mean) / ct_std
 
         return CT_normalize #, {'mean': ct_mean, 'std': ct_std}
-
-

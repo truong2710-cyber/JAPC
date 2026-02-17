@@ -83,7 +83,7 @@ def compose_wt_simple(is_wce, data_name):
     Weights for cross-entropy loss
     """
     if is_wce:
-        if data_name in ['SABS', 'SABS_Superpix', 'C0', 'C0_Superpix', 'CHAOST2', 'CHAOST2_Superpix','CMR_Superpix','CMR', 'CURVAS','CURVAS_Superpix']:
+        if data_name in ['SABS', 'SABS_Superpix', 'C0', 'C0_Superpix', 'CHAOST2', 'CHAOST2_Superpix','CMR_Superpix','CMR', 'CURVAS','CURVAS_Superpix', 'CURVASPDAC','CURVASPDAC_Superpix'] or data_name.startswith('QUBIQ'):
             return torch.FloatTensor([0.05, 1.0]).cuda()
         else:
             raise NotImplementedError
@@ -315,5 +315,3 @@ def visualize_multi_rater(support_images, support_masks, query_images, query_lab
         cv2.imwrite(save_path, viz_image)
     
     return viz_image
-
-

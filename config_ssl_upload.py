@@ -35,32 +35,32 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix
+    dataset = 'QUBIQ_PROSTATE_1_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
-    n_steps = 50000 # 100100
+    n_steps = 12000 # 100100 500000
     train_milestones = 15000 # at which step to unfreeze encoder
     batch_size = 1
     lr_milestones = [ (ii + 1) * 1000 for ii in range(n_steps // 1000 - 1)]
     lr_step_gamma = 0.95
     ignore_label = 255
     print_interval = 100
-    save_snapshot_every = 5000  # 25000
+    save_snapshot_every = 1000  # 25000
     max_iters_per_load = 1000 # epoch size, interval for reloading the dataset
     scan_per_load = -1 # numbers of 3d scans per load for saving memory. If -1, load the entire dataset to the memory
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
     label_sets = 0 # which group of labels taking as training (the rest are for testing)
-    exclude_cls_list = [2] # testing classes to be excluded in training. Set to [] if testing under setting 1
+    exclude_cls_list = [] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
     use_bound = False
     bound_wt = 0.1 # weight for boundary loss
-    calib_wt = 0 # weight for prototype calibration loss
+    calib_wt = 1 # weight for prototype calibration loss
     freeze_encoder = False # whether to freeze the backbone encoder at the beginning of training
-    num_pseudo_raters = 1 # number of pseudo raters during training (>=1)
+    num_pseudo_raters = 6 # number of pseudo raters during training (>=1)
     mild_aug = False # whether to use mild augmentation for generating pseudo labels
 
     ### Validation
@@ -68,17 +68,17 @@ def cfg():
     eval_fold = 0 # which fold for 5 fold cross validation
     support_idx=[-1] # indicating which scan is used as support in testing. 
     val_wsize=2 # L_H, L_W in testing
-    n_sup_part = 3 # number of chuncks in testing
+    n_sup_part = 1 # number of chuncks in testing
 
     # Network
     modelname = 'dlfcn_res101' # resnet 101 backbone from torchvision fcn-deeplab
     clsname = "grid_proto" # 
-    reload_model_path = None # path for reloading a trained model (overrides ms-coco initialization)
+    reload_model_path = 'runs/mySSL__QUBIQ_PROSTATE_1_Superpix_sets_0_1shot/1/snapshots/12000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
     use_mlp = False # whether to use mlp for prototype calibration in ALP module
-    use_attention = False # whether to use attention for prototype calibration in ALP module
+    use_attention = True # whether to use attention for prototype calibration in ALP module
 
     # SSL
     superpix_scale = 'MIDDLE' #MIDDLE/ LARGE
@@ -133,8 +133,73 @@ def cfg():
         'CURVAS':{'data_dir': "./data/CURVAS/curvas_CT_normalized",
                   'train_dir': "./data/CURVAS/curvas_CT_normalized_train/",
                            'test_dir': "./data/CURVAS/curvas_CT_normalized_test/"},
-        }
-
+        'CURVASPDAC_Superpix':{'data_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized",
+                           'train_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_train/",
+                           'test_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_test/"},
+        'CURVASPDAC':{'data_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized",
+                  'train_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_train/",
+                           'test_dir': "./data/CURVASPDAC/curvaspdac_CT_normalized_test/"},
+        'QUBIQ_BRAIN_GROWTH_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Validation/"},
+        'QUBIQ_BRAIN_GROWTH_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-growth/task01/Validation/"}, 
+        'QUBIQ_BRAIN_TUMOR_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Validation/"},
+        'QUBIQ_BRAIN_TUMOR_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task01/Validation/"},
+        'QUBIQ_BRAIN_TUMOR_2_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Validation/"},
+        'QUBIQ_BRAIN_TUMOR_2':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task02/Validation/"},
+        'QUBIQ_BRAIN_TUMOR_3_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Validation/"},
+        'QUBIQ_BRAIN_TUMOR_3':{'data_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/brain-tumor/task03/Validation/"},
+        'QUBIQ_KIDNEY_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Validation/"},
+        'QUBIQ_KIDNEY_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/kidney/task01/Validation/"},
+        'QUBIQ_PANCREAS_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Validation/"},
+        'QUBIQ_PANCREAS_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreas/task01/Validation/"},
+        'QUBIQ_PANCREATIC_LESION_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Validation/"},
+        'QUBIQ_PANCREATIC_LESION_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task01/Validation/"},    
+        'QUBIQ_PANCREATIC_LESION_2_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Validation/"},
+        'QUBIQ_PANCREATIC_LESION_2':{'data_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Training/",  
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/pancreatic-lesion/task02/Validation/"},    
+        'QUBIQ_PROSTATE_1_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Validation/"},
+        'QUBIQ_PROSTATE_1':{'data_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/prostate/task01/Validation/"},
+        'QUBIQ_PROSTATE_2_Superpix':{'data_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Validation/"},
+        'QUBIQ_PROSTATE_2':{'data_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Training/",
+                                        'train_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Training/",
+                                        'test_dir': "./data/QUBIQ/qubiq_normalized/prostate/task02/Validation/"},
+    }
 
 @ex.config_hook
 def add_observer(config, command_name, logger):

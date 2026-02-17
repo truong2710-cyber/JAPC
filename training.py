@@ -2,6 +2,7 @@
 Training the model
 Extended from original implementation of PANet by Wang et al.
 """
+from math import ceil
 import os
 import shutil
 import torch
@@ -461,6 +462,10 @@ def main(_run, _config, _log):
         baseset_name = 'CHAOST2'
     elif data_name == 'CURVAS_Superpix':
         baseset_name = 'CURVAS'
+    elif data_name == 'CURVASPDAC_Superpix':
+        baseset_name = 'CURVASPDAC'
+    elif data_name.startswith('QUBIQ'):
+        baseset_name = data_name.replace('_Superpix', '')
     else:
         raise ValueError(f'Dataset: {data_name} not found')
 
@@ -524,8 +529,7 @@ def main(_run, _config, _log):
 
 
     i_iter = 0  # total number of iteration
-    n_sub_epoches = _config['n_steps'] // _config['max_iters_per_load'] # number of times for reloading
-
+    n_sub_epoches = ceil(_config['n_steps'] / min(_config['max_iters_per_load'], len(trainloader))) # number of times for reloading
 
     log_loss = {'loss': 0, 'align_loss': 0, 'bound_loss': 0, 'calib_loss': 0}
 
@@ -662,4 +666,3 @@ def main(_run, _config, _log):
 
             if (i_iter - 2) > _config['n_steps']:
                 return 1 # finish up
-
