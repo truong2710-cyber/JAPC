@@ -251,28 +251,35 @@ def main():
             z_size = 1
             img_dim = 2
 
-        x0 = BD_BIAS
-        y0 = BD_BIAS
-        z0_idx = z0
+        if BD_BIAS > 0:
+            x0 = BD_BIAS
+            y0 = BD_BIAS
+            z0_idx = z0
 
-        new_x = x_size - 2 * BD_BIAS
-        new_y = y_size - 2 * BD_BIAS
-        new_z = (z1 - z0 + 1)
+            new_x = x_size - 2 * BD_BIAS
+            new_y = y_size - 2 * BD_BIAS
+            new_z = (z1 - z0 + 1)
 
-        if new_x <= 0 or new_y <= 0:
-            raise ValueError(f"BD_BIAS={BD_BIAS} too large for in-plane size {(x_size, y_size)}")
-        if new_z <= 0:
-            raise ValueError(f"Computed invalid z crop: z0={z0}, z1={z1}")
+            if new_x <= 0 or new_y <= 0:
+                raise ValueError(f"BD_BIAS={BD_BIAS} too large for in-plane size {(x_size, y_size)}")
+            if new_z <= 0:
+                raise ValueError(f"Computed invalid z crop: z0={z0}, z1={z1}")
 
-        # Crop image and labels using ROI
-        cropped_img_obj = crop_roi_xyz(img_obj, x0, y0, z0_idx, new_x, new_y, new_z)
-        cropped_seg_objs = {r: crop_roi_xyz(seg_objs[r], x0, y0, z0_idx, new_x, new_y, new_z)
-                            for r in existing_raters}
+            # Crop image and labels using ROI
+            cropped_img_obj = crop_roi_xyz(img_obj, x0, y0, z0_idx, new_x, new_y, new_z)
+            cropped_seg_objs = {r: crop_roi_xyz(seg_objs[r], x0, y0, z0_idx, new_x, new_y, new_z)
+                                for r in existing_raters}
+        else:
+            cropped_img_obj = img_obj
+            cropped_seg_objs = seg_objs
 
         # Compute in-plane spacing factor to reach TARGET_HW
         csize = cropped_img_obj.GetSize()
         if len(csize) == 3:
-            cropped_x, cropped_y, cropped_z = csize
+            if 'pancrea' in img_path:
+                cropped_z, cropped_x, cropped_y = csize
+            else:
+                cropped_x, cropped_y, cropped_z = csize
         else:
             cropped_x, cropped_y = csize
             cropped_z = 1
@@ -282,7 +289,10 @@ def main():
         # ORIGINAL spacing of the CROPPED image (same as img_obj in practice)
         spacing = cropped_img_obj.GetSpacing()
         if len(spacing) == 3:
-            sx, sy, sz = spacing
+            if 'pancrea' in img_path:
+                sz, sy, sx = spacing
+            else:
+                sx, sy, sz = spacing
         else:
             sx, sy = spacing
             sz = 1.0
@@ -294,9 +304,15 @@ def main():
             new_spacing_img = [sx * fac_x, sy * fac_y]
         else:
             if TARGET_Z_SPACING is None:
-                new_spacing_img = [sx * fac_x, sy * fac_y, sz]
+                if 'pancrea' in img_path:
+                    new_spacing_img = [sz, sy * fac_y, sx * fac_x]
+                else:
+                    new_spacing_img = [sx * fac_x, sy * fac_y, sz]
             else:
-                new_spacing_img = [sx * fac_x, sy * fac_y, float(TARGET_Z_SPACING)]
+                if 'pancrea' in img_path:
+                    new_spacing_img = [float(TARGET_Z_SPACING), sy * fac_y, sx * fac_x]
+                else:
+                    new_spacing_img = [sx * fac_x, sy * fac_y, float(TARGET_Z_SPACING)]
 
         # Resample image (linear)
         res_img_obj = resample_by_res(
@@ -305,9 +321,12 @@ def main():
             interpolator=sitk.sitkLinear,
             logging=True
         )
-
         out_img_path = os.path.join(OUT_FOLDER, f"image_{k}.nii.gz")
-        sitk.WriteImage(res_img_obj, out_img_path, True)
+        if 'pancrea' in img_path:
+            res_img_obj_permute = sitk.PermuteAxes(res_img_obj, order=[2, 1, 0])
+            sitk.WriteImage(res_img_obj_permute, out_img_path, True)
+        else:
+            sitk.WriteImage(res_img_obj, out_img_path, True)
         print(f"[OK] Saved {out_img_path}")
 
         # Resample each rater label to the SAME spacing/geometry
@@ -317,14 +336,17 @@ def main():
             # For labels, use the same target spacing as image (including z)
             res_lb_obj = resample_lb_by_res(
                 seg_obj,
-                new_spacing_img,  # <-- same [sx*fac_x, sy*fac_y, 3.0]
+                new_spacing_img,  # <-- same [sz, sx*fac_x, sy*fac_y]
                 interpolator=sitk.sitkLinear,
                 ref_img=res_img_obj,  # ensures identical size/origin/direction
                 logging=True
             )
-
             out_lb_path = os.path.join(OUT_FOLDER, f"label_{k}_{r}.nii.gz")
-            sitk.WriteImage(res_lb_obj, out_lb_path, True)
+            if 'pancrea' in img_path:
+                res_lb_obj_permute = sitk.PermuteAxes(res_lb_obj, order=[2, 1, 0])
+                sitk.WriteImage(res_lb_obj_permute, out_lb_path, True)
+            else:
+                sitk.WriteImage(res_lb_obj, out_lb_path, True)
             print(f"[OK] Saved {out_lb_path}")
             
         del img_obj, cropped_img_obj, res_img_obj
