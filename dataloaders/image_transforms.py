@@ -12,11 +12,11 @@ from scipy.ndimage.interpolation import map_coordinates
 from numpy.lib.stride_tricks import as_strided
 
 ###### UTILITIES ######
-def random_num_generator(config, random_state=np.random):
+def random_num_generator(config):
     if config[0] == 'uniform':
-        ret = random_state.uniform(config[1], config[2], 1)[0]
+        ret = np.random.uniform(config[1], config[2], 1)[0]
     elif config[0] == 'lognormal':
-        ret = random_state.lognormal(config[1], config[2], 1)[0]
+        ret = np.random.lognormal(config[1], config[2], 1)[0]
     else:
         #print(config)
         raise Exception('unsupported format')
@@ -179,7 +179,7 @@ def affine_transform_via_M(image, M, borderMode=cv2.BORDER_CONSTANT, interp=cv2.
     return warped
 
 ###### ELASTIC TRANSFORM ######
-def elastic_transform(image, alpha=1000, sigma=30, spline_order=1, mode='nearest', random_state=np.random):
+def elastic_transform(image, alpha=1000, sigma=30, spline_order=1, mode='nearest'):
     """Elastic deformation of image as described in [Simard2003]_.
     .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
        Convolutional Neural Networks applied to Visual Document Analysis", in
@@ -189,9 +189,9 @@ def elastic_transform(image, alpha=1000, sigma=30, spline_order=1, mode='nearest
     assert image.ndim == 3
     shape = image.shape[:2]
 
-    dx = gaussian_filter((random_state.rand(*shape) * 2 - 1),
+    dx = gaussian_filter((np.random.rand(*shape) * 2 - 1),
                          sigma, mode="constant", cval=0) * alpha
-    dy = gaussian_filter((random_state.rand(*shape) * 2 - 1),
+    dy = gaussian_filter((np.random.rand(*shape) * 2 - 1),
                          sigma, mode="constant", cval=0) * alpha
 
     x, y = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
@@ -203,7 +203,7 @@ def elastic_transform(image, alpha=1000, sigma=30, spline_order=1, mode='nearest
     return result
 
 
-def elastic_transform_nd(image, alpha, sigma, random_state=None, order=1, lazy=False):
+def elastic_transform_nd(image, alpha, sigma, order=1, lazy=False):
     """Expects data to be (nx, ny, n1 ,..., nm)
     params:
     ------
@@ -220,18 +220,15 @@ def elastic_transform_nd(image, alpha, sigma, random_state=None, order=1, lazy=F
          very high (1/2*im_size) => translation
     """
 
-    if random_state is None:
-        random_state = np.random.RandomState(None)
-
     shape = image.shape
     imsize = shape[:2]
     dim = shape[2:]
 
     # Random affine
     blur_size = int(4*sigma) | 1
-    dx = cv2.GaussianBlur(random_state.rand(*imsize)*2-1,
+    dx = cv2.GaussianBlur(np.random.rand(*imsize)*2-1,
                           ksize=(blur_size, blur_size), sigmaX=sigma) * alpha
-    dy = cv2.GaussianBlur(random_state.rand(*imsize)*2-1,
+    dy = cv2.GaussianBlur(np.random.rand(*imsize)*2-1,
                           ksize=(blur_size, blur_size), sigmaX=sigma) * alpha
 
     # use as_strided to copy things over across n1...nn channels
