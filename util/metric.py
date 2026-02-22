@@ -31,6 +31,8 @@ class Metric(object):
         if self.debug_viz_dir:
             os.makedirs(self.debug_viz_dir, exist_ok=True)
 
+        self.num_raters = None
+
     def reset(self):
         """
         Reset accumulated evaluation. 
@@ -107,6 +109,8 @@ class Metric(object):
             labels:
                 only count specific label, used when knowing all possible labels in advance 2
         """
+        if self.num_raters is None:
+            self.num_raters = pred.shape[0] if pred.ndim == 3 else 1
         # allow pred/target to be either HxW or R x H x W (multi-rater)
         if self.n_scans == 1:
             n_scan = 0
@@ -217,6 +221,62 @@ class Metric(object):
 
             return mIoU_class, mIoU
 
+    # def get_mDice(self, labels=None, n_scan=None, give_raw = False):
+    #     """
+    #     Compute mean Dice score (in 3D scan level)
+
+    #     Args:
+    #         labels:
+    #             specify a subset of labels to compute mean IoU, default is using all classes
+    #     """
+    #     # NOTE: unverified
+    #     if labels is None:
+    #         labels = self.labels
+    #     # Sum TP, FP, FN statistic of all samples 1 4
+    #     if n_scan is None:
+    #         mDice_class_list = []
+    #         for _scan in range(self.n_scans):
+    #             tp_all = self._stack_scan_entries(self.tp_lst[_scan])
+    #             fp_all = self._stack_scan_entries(self.fp_lst[_scan])
+    #             fn_all = self._stack_scan_entries(self.fn_lst[_scan])
+
+    #             # Micro-average: sum counts across entries then compute Dice per class
+    #             tp_total = np.nansum(tp_all, axis=0)
+    #             fp_total = np.nansum(fp_all, axis=0)
+    #             fn_total = np.nansum(fn_all, axis=0)
+
+    #             denom_total = 2 * tp_total + fp_total + fn_total
+    #             with np.errstate(divide='ignore', invalid='ignore'):
+    #                 dice_per_class = 2 * tp_total / denom_total
+    #             mDice_class_scan = dice_per_class
+    #             mDice_class_list.append(mDice_class_scan.take(labels))
+
+    #         mDice_class = np.vstack(mDice_class_list)
+    #         mDice = mDice_class.mean(axis=1)
+    #         if not give_raw:
+    #             return (mDice_class.mean(axis=0), mDice_class.std(axis=0),
+    #                 mDice.mean(axis=0), mDice.std(axis=0))
+    #         else:
+    #             return (mDice_class.mean(axis=0), mDice_class.std(axis=0),
+    #                 mDice.mean(axis=0), mDice.std(axis=0), mDice_class)
+
+    #     else:
+    #         tp_all = self._stack_scan_entries(self.tp_lst[n_scan])
+    #         fp_all = self._stack_scan_entries(self.fp_lst[n_scan])
+    #         fn_all = self._stack_scan_entries(self.fn_lst[n_scan])
+
+    #         tp_total = np.nansum(tp_all, axis=0)
+    #         fp_total = np.nansum(fp_all, axis=0)
+    #         fn_total = np.nansum(fn_all, axis=0)
+
+    #         denom_total = 2 * tp_total + fp_total + fn_total
+    #         with np.errstate(divide='ignore', invalid='ignore'):
+    #             dice_per_class = 2 * tp_total / denom_total
+    #         mDice_class = dice_per_class.take(labels)
+    #         mDice = mDice_class.mean()
+
+    #         return mDice_class, mDice
+
     def get_mDice(self, labels=None, n_scan=None, give_raw = False):
         """
         Compute mean Dice score (in 3D scan level)
@@ -229,26 +289,29 @@ class Metric(object):
         if labels is None:
             labels = self.labels
         # Sum TP, FP, FN statistic of all samples 1 4
+        num_raters = self.num_raters
         if n_scan is None:
             mDice_class_list = []
             for _scan in range(self.n_scans):
                 tp_all = self._stack_scan_entries(self.tp_lst[_scan])
                 fp_all = self._stack_scan_entries(self.fp_lst[_scan])
                 fn_all = self._stack_scan_entries(self.fn_lst[_scan])
-
-                # Micro-average: sum counts across entries then compute Dice per class
-                tp_total = np.nansum(tp_all, axis=0)
-                fp_total = np.nansum(fp_all, axis=0)
-                fn_total = np.nansum(fn_all, axis=0)
-
-                denom_total = 2 * tp_total + fp_total + fn_total
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    dice_per_class = 2 * tp_total / denom_total
-                mDice_class_scan = dice_per_class
-                mDice_class_list.append(mDice_class_scan.take(labels))
-
-            mDice_class = np.vstack(mDice_class_list)
-            mDice = mDice_class.mean(axis=1)
+                
+                per_rater_dice = []
+                for r in range(num_raters):
+                    tp_r = np.nansum(tp_all[r::num_raters], axis=0)
+                    fp_r = np.nansum(fp_all[r::num_raters], axis=0)
+                    fn_r = np.nansum(fn_all[r::num_raters], axis=0)
+                    denom_r = 2 * tp_r + fp_r + fn_r
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        dice_r = 2 * tp_r / denom_r
+                    dice_sel = dice_r.take(labels)
+                    per_rater_dice.append(dice_sel) #[C,]
+                per_rater_dice = np.vstack(per_rater_dice) if len(per_rater_dice) else np.empty((0, len(labels))) # [R, C]
+                mDice_class_list.append(per_rater_dice)
+                                
+            mDice_class = np.stack(mDice_class_list) # [Slices, R, C]
+            mDice = mDice_class.mean(axis=1) # [Slices, C]
             if not give_raw:
                 return (mDice_class.mean(axis=0), mDice_class.std(axis=0),
                     mDice.mean(axis=0), mDice.std(axis=0))
@@ -261,17 +324,22 @@ class Metric(object):
             fp_all = self._stack_scan_entries(self.fp_lst[n_scan])
             fn_all = self._stack_scan_entries(self.fn_lst[n_scan])
 
-            tp_total = np.nansum(tp_all, axis=0)
-            fp_total = np.nansum(fp_all, axis=0)
-            fn_total = np.nansum(fn_all, axis=0)
-
-            denom_total = 2 * tp_total + fp_total + fn_total
-            with np.errstate(divide='ignore', invalid='ignore'):
-                dice_per_class = 2 * tp_total / denom_total
-            mDice_class = dice_per_class.take(labels)
-            mDice = mDice_class.mean()
+            per_rater_dice = []
+            for r in range(num_raters):
+                tp_r = np.nansum(tp_all[r::num_raters], axis=0)
+                fp_r = np.nansum(fp_all[r::num_raters], axis=0)
+                fn_r = np.nansum(fn_all[r::num_raters], axis=0)
+                denom_r = 2 * tp_r + fp_r + fn_r
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    dice_r = 2 * tp_r / denom_r
+                dice_sel = dice_r.take(labels)
+                per_rater_dice.append(dice_sel) #[C,]
+            per_rater_dice = np.vstack(per_rater_dice) if len(per_rater_dice) else np.empty((0, len(labels))) # [R, C]
+            mDice_class_list = per_rater_dice
+            mDice = mDice_class_list.mean(axis=1) # [C,]
 
             return mDice_class, mDice
+
 
     def get_mPrecRecall(self, labels=None, n_scan=None, give_raw = False):
         """
