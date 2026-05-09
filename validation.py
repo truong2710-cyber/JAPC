@@ -138,8 +138,9 @@ def main(_run, _config, _log):
 
     with torch.no_grad():
         save_pred_buffer = {} # indexed by class
-
+        curr_lb_idx = 0
         for curr_lb in test_labels:
+            curr_lb_idx += 1
             te_dataset.set_curr_cls(curr_lb)
             support_batched = te_parent.get_support(curr_class = curr_lb, class_idx = [curr_lb], scan_idx = _config["support_idx"], npart=_config['task']['npart'])
 
@@ -160,8 +161,9 @@ def main(_run, _config, _log):
 
             last_qpart = 0 # used as indicator for adding result to buffer
 
+            test_indx = 0
             for sample_batched in testloader:
-
+                test_indx += 1
                 _scan_id = sample_batched["scan_id"][0] # we assume batch size for query is 1
                 if _scan_id in te_parent.potential_support_sid: # skip the support scan, don't include that to query
                     continue
@@ -202,6 +204,14 @@ def main(_run, _config, _log):
 
                 if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']):
                     mar_val_metric_node.record(query_pred, np.array(query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count) 
+
+                    # saved_dict = {'sup_img_part': sup_img_part[0][0].detach().cpu().numpy(), 'sup_fgm_part': torch.stack(sup_fgm_part[0][0]).detach().cpu().numpy(), 'sup_bgm_part': torch.stack(sup_bgm_part[0][0]).detach().cpu().numpy(), \
+                    #               'query_images': query_images[0].detach().cpu().numpy(), 'query_labels': query_labels.detach().cpu().numpy().transpose(1, 0, 2, 3), 'labels': [curr_lb], 'n_scan': curr_scan_count, 'pred': query_pred}
+                    # # shape: sup_img_part: [B x C x H x W], sup_fgm_part: [R x B x H x W], sup_bgm_part: [R x B x H x W], query_images: [B(1) x C x H x W], query_labels: [R x B(1) x H x W]
+
+                    # saved_path = os.path.join('./vis2', f'00_{curr_lb_idx}_{test_indx}_case_{_scan_id}_z{sample_batched["z_id"][0]}.npz')
+                    # os.makedirs(os.path.dirname(saved_path), exist_ok=True)
+                    # np.savez(saved_path, **saved_dict)
                 else:
                     pass
 

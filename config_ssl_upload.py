@@ -35,7 +35,8 @@ def cfg():
     mode = 'train' # for now only allows 'train' 
     num_workers = 4 # 0 for debugging. 
 
-    dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
+    # dataset = 'CURVAS_Superpix' # i.e. abdominal MRI SABS_Superpix  CHAOST2_Superpix CURVAS_Superpix CURVASPDAC_Superpix QUBIQ_BRAIN_TUMOR_1_Superpix
+    dataset = 'QUBIQ_BRAIN_GROWTH_1_Superpix'
     use_coco_init = True # initialize backbone with MS_COCO initialization. Anyway coco does not contain medical images
 
     ### Training
@@ -52,7 +53,7 @@ def cfg():
     which_aug = 'sabs_aug' # standard data augmentation with intensity and geometric transforms
     input_size = (256, 256)
     min_fg_data='1' # when training with manual annotations, indicating number of foreground pixels in a single class single slice. This empirically stablizes the training process
-    label_sets = 1 # which group of labels taking as training (the rest are for testing)
+    label_sets = 0 # which group of labels taking as training (the rest are for testing)
     exclude_cls_list = [] # testing classes to be excluded in training. Set to [] if testing under setting 1
     usealign = True # see vanilla PANet
     use_wce = True
@@ -75,6 +76,7 @@ def cfg():
     clsname = "grid_proto" # 
     reload_model_path = 'runs/mySSL__CURVAS_Superpix_sets_1_1shot/12/snapshots/25000.pth' # path for reloading a trained model (overrides ms-coco initialization)
     # runs/mySSL__CURVAS_Superpix_sets_0_1shot/14/snapshots/25000.pth # baseline
+    reload_model_path = '/workspace/Personalized-FS/runs/mySSL__QUBIQ_BRAIN_GROWTH_1_Superpix_sets_0_1shot/19/snapshots/5000.pth'
     proto_grid_size = 8 # L_H, L_W = (32, 32) / 8 = (4, 4)  in training
     feature_hw = [32, 32] # feature map size, should couple this with backbone in future
     use_mlp = False # whether to use mlp for prototype calibration in ALP module
