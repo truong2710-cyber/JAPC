@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CFG_FILE="$ROOT_DIR/config_ssl_upload.py"
-RESULTS_FILE="$ROOT_DIR/validation_results_ssl_alp_setting1_set1.json"
+RESULTS_FILE="$ROOT_DIR/validation_results_ssl_alp_setting2_set1_ours.json"
 
 usage() {
     echo "Usage: $0 <support_idx>" >&2
@@ -57,7 +57,7 @@ for SUPPORT_IDX in $(seq "$START" "$END"); do
     echo "Searching for latest metrics.json under runs/"
         LATEST_METRICS=$(python3 - <<PY
 import glob,os
-files = glob.glob('../runs/**/metrics.json', recursive=True)
+files = glob.glob('../runs_ssl_alp_setting2_set1_ours/mySSL__CURVAS_Superpix_sets_1_1shot/**/metrics.json', recursive=True)
 if not files:
         print('')
 else:
