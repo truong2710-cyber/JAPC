@@ -26,3 +26,4 @@ __pycache__/
 *.rar
 *.7z
 runs/
+runs_*/
