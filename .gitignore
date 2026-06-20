@@ -27,3 +27,4 @@ __pycache__/
 *.7z
 runs/
 runs_*/
+*.npz

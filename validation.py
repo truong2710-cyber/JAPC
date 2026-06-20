@@ -191,19 +191,19 @@ def main(_run, _config, _log):
                 sup_bgm_part = [[[rater_tensor.unsqueeze(0) for rater_tensor in shot_raters]
                                   for shot_raters in support_bg_mask[0][q_part]]]
 
-                # R x 2 x H x W
-                query_pred, _, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
-                # R x H x W
-                query_pred_bg = np.array(query_pred.argmin(dim=1).cpu())
-                query_pred = np.array(query_pred.argmax(dim=1).cpu())
-                consensus = np.mean(query_pred, axis=0).copy() # H x W
-                # binarize consensus
-                consensus[consensus >= 0.5] = 1
-                consensus[consensus < 0.5] = 0
-                _pred[..., ii] = consensus # save the consensus prediction to visualize
+                # # R x 2 x H x W
+                # query_pred, _, _, _, assign_mats = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
+                # # R x H x W
+                # query_pred_bg = np.array(query_pred.argmin(dim=1).cpu())
+                # query_pred = np.array(query_pred.argmax(dim=1).cpu())
+                # consensus = np.mean(query_pred, axis=0).copy() # H x W
+                # # binarize consensus
+                # consensus[consensus >= 0.5] = 1
+                # consensus[consensus < 0.5] = 0
+                # _pred[..., ii] = consensus # save the consensus prediction to visualize
 
                 if (sample_batched["z_id"] - sample_batched["z_max"] <= _config['z_margin']) and (sample_batched["z_id"] - sample_batched["z_min"] >= -1 * _config['z_margin']):
-                    mar_val_metric_node.record(query_pred, np.array(query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count) 
+                    # mar_val_metric_node.record(query_pred, np.array(query_labels[0].cpu()), labels=[curr_lb], n_scan=curr_scan_count) 
 
                     # create consensus masks for support
                     sup_fgm_part = torch.stack(sup_fgm_part[0][0])
@@ -212,12 +212,12 @@ def main(_run, _config, _log):
                     sup_bgm_part = torch.stack(sup_bgm_part[0][0])
                     consensus_sup_bgm = torch.mean(sup_bgm_part, dim=0, keepdim=True) # 1 x B x H x W
                     sup_bgm_part = torch.cat([consensus_sup_bgm, sup_bgm_part], dim=0) # (R+1) x B x H x W
-                    saved_dict = {'sup_img_part': sup_img_part[0][0].detach().cpu().numpy(), 'sup_fgm_part': sup_fgm_part.detach().cpu().numpy()[0], 'sup_bgm_part': sup_bgm_part.detach().cpu().numpy()[0], \
-                                  'query_images': query_images[0].detach().cpu().numpy(), 'query_labels': query_labels.detach().cpu().numpy().transpose(1, 0, 2, 3)[0], 'labels': [curr_lb], 'n_scan': curr_scan_count}
+                    saved_dict = {'sup_img_part': sup_img_part[0][0].detach().cpu().numpy(), 'sup_fgm_part': sup_fgm_part.detach().cpu().numpy(), 'sup_bgm_part': sup_bgm_part.detach().cpu().numpy(), \
+                                  'query_images': query_images[0].detach().cpu().numpy(), 'query_labels': query_labels.detach().cpu().numpy().transpose(1, 0, 2, 3), 'labels': [curr_lb], 'n_scan': curr_scan_count}
                     # shape: sup_img_part: [B x C x H x W], sup_fgm_part: [R+1 x B x H x W], sup_bgm_part: [R+1 x B x H x W], query_images: [B(1) x C x H x W], query_labels: [R x B(1) x H x W]                    
                     # base: shape: sup_img_part: [B x C x H x W], sup_fgm_part: [B x H x W], sup_bgm_part: [B x H x W], query_images: [B(1) x C x H x W], query_labels: [B(1) x H x W]
                     
-                    saved_path = os.path.join('./vis', f'{curr_lb_idx}_{test_indx}_case_{_scan_id}_z{sample_batched["z_id"][0]}.npz')
+                    saved_path = os.path.join('./qubiq_pancreatic_lesion_1_test_mr', f'{curr_lb_idx}_{test_indx}_case_{_scan_id}_z{sample_batched["z_id"][0]}.npz')
                     os.makedirs(os.path.dirname(saved_path), exist_ok=True)
                     np.savez(saved_path, **saved_dict)
                 else:
@@ -244,7 +244,7 @@ def main(_run, _config, _log):
 
         del save_pred_buffer
 
-    del sample_batched, support_images, support_bg_mask, query_images, query_labels, query_pred
+    del sample_batched, support_images, support_bg_mask, query_images, query_labels #, query_pred
 
     # compute dice scores by scan
     m_classDice,_, m_meanDice,_, m_rawDice = mar_val_metric_node.get_mDice(labels=sorted(test_labels), n_scan=None, give_raw = True)
