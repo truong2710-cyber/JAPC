@@ -177,15 +177,15 @@ data/pseudolabel_gen.ipynb
 python training.py
 ```
 
-Important configuration options:
+Before training and testing, make sure that the configuration in `config_ssl_upload.py` is correct. Important configuration options:
 
 | Parameter         | Description             |
 | ----------------- | ----------------------- |
 | dataset           | Dataset name            |
-| label_sets        | Training label split    |
-| exclude_cls_list  | Unseen test classes     |
+| label_sets        | Training label split. See `dataloader/dataset_utils.py` for more details. |
+| exclude_cls_list  | Unseen test classes. See `dataloader/dataset_utils.py` for more details.  |
 | calib_wt          | Calibration loss weight |
-| num_pseudo_raters | Number of pseudo raters |
+| num_pseudo_raters | Number of raters        |
 | reload_model_path | Pretrained checkpoint   |
 | use_attention     | Enable JAPC             |
 
@@ -196,6 +196,8 @@ Important configuration options:
 ```bash
 python validation.py
 ```
+
+You can also use our trained checkpoints to evaluate without training.
 
 ---
 
