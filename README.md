@@ -70,7 +70,7 @@ git checkout multi-rater-attn-ssl-alp-2
 
 Unless otherwise specified, all reported results can be reproduced using the corresponding branch and pretrained checkpoints provided below.
 
---
+---
 
 ## Main Results
 
