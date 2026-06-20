@@ -22,7 +22,7 @@ Official implementation of:
 ## Framework Overview
 
 <p align="center">
-  <img src="assets/JAPC.png" width="100%">
+  <img src="assets/JAPC.jpg" width="100%">
 </p>
 
 <p align="center">
