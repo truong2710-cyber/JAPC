@@ -49,6 +49,29 @@ We introduce **Few-Shot Multi-Rater Segmentation**, where the model generates pe
 
 ---
 
+## Repository Branches
+
+This repository contains implementations based on two different few-shot segmentation frameworks:
+
+| Branch                       | Backbone                        |
+| ---------------------------- | ------------------------------- |
+| `main`                       | DSPNet-based implementation     |
+| `multi-rater-attn-ssl-alp-2` | SSL-ALPNet-based implementation |
+
+To switch between implementations:
+
+```bash
+# DSPNet version (default)
+git checkout main
+
+# SSL-ALPNet version
+git checkout multi-rater-attn-ssl-alp-2
+```
+
+Unless otherwise specified, all reported results can be reproduced using the corresponding branch and pretrained checkpoints provided below.
+
+--
+
 ## Main Results
 
 ### Abd-CT (Setting 1)
