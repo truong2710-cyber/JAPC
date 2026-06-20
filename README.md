@@ -1,93 +1,215 @@
-# DSPNet
+# Attention-Based Prototype Calibration for Multi-Rater Few-Shot Medical Image Segmentation
 
-**Abstract**:
+<p align="center">
 
-As dominant Few-shot Semantic Segmentation (FSS) methods, the prototypical scheme suffers from a fundamental limitation: The pooling-based prototypes are prone to losing local details. The complicated and diverse details in medical
-images amplify this problem considerably. Unlike conventional incremental solution that constructs new prototypes to capture more details, this paper introduces a novel Detail Self-refined Prototype Network (DSPNet). Our core idea is 
-enhancing theprototypes’ ability to model details via detail self-refining. To this end, we propose two new attention-like designs. In foreground semantic prototype attention module, to construct global semantics while maintaining the
-captured detail semantics, we fuse cluster-based detail prototypes as a single class prototype in a channel-wise weighting fashion. In background channel-structural multi-head attention module, considering that the complicated background
-often has no apparent semantic relation in the spatial dimensions,we integrate each background detail prototype’s channel structural information for its self-enhancement. Specifically, we introduce a neighbour channel-aware regulation
-into the multi-head channel attention, exploiting a local-global adjustment mechanism.Elements of each detail prototype are individually refreshed by different heads in BCMA. Extensive experiments on two challenging medical benchmarks
-demonstrate the superiority of DSPNet over previous state-of-the-art FSS methods.
-**NOTE: We are actively updating this repository**
+[![Paper](https://img.shields.io/badge/Paper-MICCAI%202026-blue)](#)
+[![Code](https://img.shields.io/badge/Python-3.9+-green)](#)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c)](#)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](#)
 
-If you find this code base useful, please cite our paper. Thanks!
+</p>
 
+Official implementation of:
+
+**Attention-Based Prototype Calibration for Multi-Rater Few-Shot Medical Image Segmentation**
+
+**Truong Vu, Minh Khoi Ho, Yutong Xie**
+
+*MICCAI 2026*
+
+---
+
+## Framework Overview
+
+<p align="center">
+  <img src="assets/JAPC.jpg" width="100%">
+</p>
+
+<p align="center">
+  <em>Overview of the proposed Joint Attention-based Prototype Calibration (JAPC) framework. (a) Few-shot multi-rater segmentation pipeline. Rater-specific and consensus prototypes are extracted from support features, and calibrated by the Joint Attention-based Prototype Calibration (JAPC) module to generate R personalized predictions via cosine similarity with query features. (b) Internal structure of JAPC, modeling structured interactions between rater prototypes and their deviations. (c) Pseudo-style generation. Pseudo labels derived from superpixel/supervoxel segmentation are transformed to synthesize multiple rater-style variants, which are used as support labels and query supervision during training. The “Network” block in (c) corresponds to the full pipeline shown in (a).</em>
+</p>
+
+---
+
+## Highlights
+
+* 🚀 First formulation of **Few-Shot Multi-Rater Medical Image Segmentation**
+* 🧠 Lightweight **Joint Attention-based Prototype Calibration (JAPC)**
+* 👥 Explicit modeling of inter-rater variability in prototype space
+* 🔄 Pseudo-style generation for multi-rater supervision
+* 📈 Consistent improvements across Abd-CT and Brain-MRI benchmarks
+
+---
+
+## Overview
+
+Most few-shot medical image segmentation methods assume a single annotation per image. However, real clinical datasets often contain multiple expert annotations with systematic differences.
+
+We introduce **Few-Shot Multi-Rater Segmentation**, where the model generates personalized predictions corresponding to multiple annotator styles. Our proposed **JAPC** module calibrates rater-specific prototypes using attention-based interactions while preserving shared semantic structure.
+
+---
+
+## Main Results
+
+### Abd-CT (Setting 1)
+
+| Method                |     DiceK |     DiceP |     DiceL | Mean Dice | Checkpoint |
+| --------------------- | --------: | --------: | --------: | --------: | ---------- |
+| SSL-ALPNet            |     69.33 |     37.68 |     77.42 |     61.48 | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/6/snapshots/50000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/82/snapshots/50000.pth)     |
+| **SSL-ALPNet + JAPC** | **71.04** | **39.06** | **78.26** | **62.79** | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/7/snapshots/25000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/74/snapshots/25000.pth)     |
+|                       |           |           |           |           |            |
+| DSPNet                |     68.03 |     37.96 |     78.58 |     61.52 | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/30/snapshots/50000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/10/snapshots/50000.pth)     |
+| **DSPNet + JAPC**     | **68.63** | **39.09** | **79.03** | **62.25** | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/19/snapshots/25000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/57/snapshots/25000.pth)     |
+
+### Abd-CT (Setting 2)
+
+| Method                |     DiceK |     DiceP |     DiceL | Mean Dice | Checkpoint |
+| --------------------- | --------: | --------: | --------: | --------: | ---------- |
+| SSL-ALPNet            |     58.50 |     38.23 |     73.02 |     56.58 | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/157/snapshots/50000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/2/snapshots/50000.pth)     |
+| **SSL-ALPNet + JAPC** | **61.49** | **38.24** | **76.33** | **58.69** | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/158/snapshots/25000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/3/snapshots/25000.pth)     |
+|                       |           |           |           |           |            |
+| DSPNet                |     62.24 |     35.32 |     76.77 |     58.11 | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/152/snapshots/50000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/1/snapshots/50000.pth)     |
+| **DSPNet + JAPC**     | **64.10** | **36.78** | **77.98** | **59.62** | [ckpt_K](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_0_1shot/55/snapshots/25000.pth), [ckpt_PL](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__CURVAS_Superpix_sets_1_1shot/34/snapshots/25000.pth)    |
+
+### Brain-MRI (Setting 1)
+
+| Method                |      Dice | Checkpoint |
+| --------------------- | --------: | ---------- |
+| SSL-ALPNet            |     61.37 | [ckpt](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__QUBIQ_BRAIN_GROWTH_1_Superpix_sets_0_1shot/8/snapshots/10000.pth)   |
+| **SSL-ALPNet + JAPC** | **65.78** | [ckpt](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__QUBIQ_BRAIN_GROWTH_1_Superpix_sets_0_1shot/9/snapshots/5000.pth)   |
+|                       |           |            |
+| DSPNet                |     54.02 | [ckpt](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__QUBIQ_BRAIN_GROWTH_1_Superpix_sets_0_1shot/1/snapshots/10000.pth)   |
+| **DSPNet + JAPC**     | **66.62** | [ckpt](https://huggingface.co/truongvu2710/Personalized-FS/resolve/main/runs/mySSL__QUBIQ_BRAIN_GROWTH_1_Superpix_sets_0_1shot/5/snapshots/5000.pth)   |
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/truong2710-cyber/Personalized-FS.git
+cd Personalized-FS
+
+conda create -n japc python=3.9
+conda activate japc
+
+pip install -r requirements.txt
 ```
-@article{Song Tang2024DSPNet,
-  title={Few-Shot Medical Image Segmentation with Detail Self-Refined Prototypes},
-  author={Song Tang, Shaxu Yan, Xiaozhi Qi, Jianxin Gao, Mao Ye, Jianwei Zhang and Xiatian Zhu},
-  journal={},
-  year={2024}
+
+---
+
+## Dataset Preparation
+
+We evaluate on two multi-rater medical image segmentation datasets:
+
+* **CURVAS (Abd-CT)**
+* **QUBIQ Brain-Growth (Brain-MRI)**
+
+### 1. Organize Raw Data
+
+Place the downloaded images and annotations into their corresponding directories:
+
+```text
+data/CURVAS/
+data/QUBIQ/
+```
+
+### 2. QUBIQ Only: Fix Dataset Structure
+
+The original QUBIQ release requires an additional preprocessing step to reorganize the data structure:
+
+```bash
+bash fix_data_structure.sh
+```
+
+### 3. Preprocess the Datasets
+
+For both datasets, run the preprocessing scripts in the following order:
+
+```text
+intensity_normalization.py
+resampling_and_roi.py
+class_map.py
+```
+
+These scripts normalize image intensities, resample scans to the target resolution, crop the region of interest, and generate class-index mappings required by the dataloaders.
+
+### 4. Generate Pseudo Labels
+
+Generate superpixel-based pseudo labels using:
+
+```text
+data/pseudolabel_gen.ipynb
+```
+
+### Notes
+
+* The generated `classmap_*.json` files indicate which slices contain each semantic class and are required for few-shot episode sampling.
+* Custom pseudo-label generation pipelines may also be used, provided that the resulting masks follow the same format as the supplied preprocessing code.
+
+---
+
+## Training
+
+```bash
+python training.py
+```
+
+Important configuration options:
+
+| Parameter         | Description             |
+| ----------------- | ----------------------- |
+| dataset           | Dataset name            |
+| label_sets        | Training label split    |
+| exclude_cls_list  | Unseen test classes     |
+| calib_wt          | Calibration loss weight |
+| num_pseudo_raters | Number of pseudo raters |
+| reload_model_path | Pretrained checkpoint   |
+| use_attention     | Enable JAPC             |
+
+---
+
+## Evaluation
+
+```bash
+python validation.py
+```
+
+---
+
+## Repository Structure
+
+```text
+.
+├── data/
+├── dataloaders/
+├── models/
+├── scripts/
+├── runs/
+├── training.py
+├── validation.py
+└── config_ssl_upload.py
+```
+
+---
+
+## Citation
+
+```bibtex
+@inproceedings{vumiccai2026,
+  title={Attention-Based Prototype Calibration for Multi-Rater Few-Shot Medical Image Segmentation},
+  author={Vu, Truong and Ho, Minh Khoi and Xie, Yutong},
+  booktitle={Medical Image Computing and Computer Assisted Intervention (MICCAI)},
+  year={2026}
 }
 ```
 
-### 1. Dependencies
+---
 
-Please install essential dependencies (see `requirements.txt`) 
+## Acknowledgements
 
-```
-dcm2nii
-nibabel==2.5.1
-numpy==1.21.6
-opencv-python==4.1.1
-Pillow==9.5.0 
-sacred==0.7.5
-scikit-image==0.14.0
-SimpleITK==1.2.3
-torch==1.8.1
-torchvision==0.9.1
-```
+This repository builds upon:
 
-### 2. Data pre-processing 
+* DSPNet (MedIA 2025)
+* SSL-ALPNet (ECCV 2020)
 
-### Datasets and pre-processing
-**NOTE:** The ipynb and sh files below, used for pre-processing, can be found at the link of SSL-ALPNet: https://github.com/cheng-01037/Self-supervised-Fewshot-Medical-Image-Segmentation 
-
-Download:  
-**Abdominal MRI**
-
-0. Download [Combined Healthy Abdominal Organ Segmentation dataset](https://chaos.grand-challenge.org/) and put the `/MR` folder under `./data/CHAOST2/` directory
-
-1. Converting downloaded data (T2 fold) to `nii` files in 3D for the ease of reading
-
-run `./data/CHAOST2/dcm_img_to_nii.sh` to convert dicom images to nifti files.
-
-run `./data/CHAOST2/png_gth_to_nii.ipynp` to convert ground truth with `png` format to nifti.
-
-2. Pre-processing downloaded images
-
-run `./data/CHAOST2/image_normalize.ipynb`
-
-**Abdominal CT**
-
-0. Download [Synapse Multi-atlas Abdominal Segmentation dataset](https://www.synapse.org/#!Synapse:syn3193805/wiki/217789) and put the `/img` and `/label` folders under `./data/SABS/` directory
-
-1. Intensity windowing 
-
-run `./data/SABS/intensity_normalization.ipynb` to apply abdominal window.
-
-2. Crop irrelavent emptry background and resample images
-
-run `./data/SABS/resampling_and_roi.ipynb` 
-
-**Shared steps**
-
-3. Build class-slice indexing for setting up experiments
-
-run `./data/<CHAOST2/SABS>class_slice_index_gen.ipynb`  
-
-### Training  
-1. Download pre-trained ResNet-101 weights [vanilla version](https://download.pytorch.org/models/resnet101-63fe2227.pth) or [deeplabv3 version](https://download.pytorch.org/models/deeplabv3_resnet101_coco-586e9e4e.pth) and put your checkpoints `./pretrained_model/hub/checkpoints` folder,
-2. Run `training.py` 
-
-#### Note:  
-The α and (w1, w2, w3) coefficient for  in the code `./models/alpmodule.py` should be manually modified.  
-For setting 1, ABD:  α = 0.3, (w1, w2, w3) = (0.2, 0.8, 0.2)   CMR：α = 0.3, (w1, w2, w3) = (0.1, 0.9, 0.1)
-For setting 2, ABD： α = 0.2, (w1, w2, w3) = (0.3, 0.6, 0.3) 
-
-### Testing
-Run `validation.py`
-
-### Acknowledgement
-This code is based on [SSL-ALPNet](https://arxiv.org/abs/2007.09886v2) (ECCV'20) by [Ouyang et al.](https://github.com/cheng-01037/Self-supervised-Fewshot-Medical-Image-Segmentation.git)
+We thank the original authors for making their code publicly available.
