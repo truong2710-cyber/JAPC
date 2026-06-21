@@ -5,11 +5,6 @@ saved per *subtask*.
 Output:
 OUT_ROOT/{task_name}/{taskXX}/{split}/image_{k}.nii.gz
 OUT_ROOT/{task_name}/{taskXX}/{split}/label_{k}_segYY.nii.gz
-
-Special-case:
-- If task_name == "brain-tumor": force everything to 2D by extracting the first slice
-  from image.nii.gz (z=0). This avoids 3D direction (len=9) vs 2D direction (len=4)
-  mismatch and prevents empty labels due to physical-space mismatch.
 """
 
 import os
@@ -103,6 +98,16 @@ def align_to_ref(ref: sitk.Image, moving: sitk.Image, is_label=True) -> sitk.Ima
     if ref.GetDimension() == 2 and moving.GetDimension() == 2:
         return sitk.Resample(moving, ref, sitk.Transform(), interp, 0, moving.GetPixelID())
 
+    # If reference is 3D but moving is 2D, promote moving to 3D by repeating the single slice
+    # so that Resample can operate without dimension mismatch.
+    if ref.GetDimension() == 3 and moving.GetDimension() == 2:
+        ref_z = ref.GetSize()[2]
+        arr2 = sitk.GetArrayFromImage(moving)  # [y, x]
+        arr3 = np.repeat(arr2[np.newaxis, ...], ref_z, axis=0)  # [z, y, x]
+        moving3 = sitk.GetImageFromArray(arr3)
+        moving3.CopyInformation(ref)
+        moving = moving3
+
     if ref.GetDimension() == moving.GetDimension():
         return sitk.Resample(moving, ref, sitk.Transform(), interp, 0, moving.GetPixelID())
 
@@ -172,10 +177,9 @@ def main(task_name: str = None, split: str = None):
 
         # read image and define reference geometry
         img_obj = sitk.ReadImage(img_path)
-        if task == "brain-tumor":
-            img_ref = extract_first_slice_as_2d(img_obj)  # enforce 2D
-        else:
-            img_ref = img_obj
+        # Keep original image dimensionality (do not force 2D).
+        # Labels that are 2D or single-slice will be expanded below to match image depth.
+        img_ref = img_obj
 
         img_norm = intensity_normalize(img_ref)
 
@@ -194,6 +198,32 @@ def main(task_name: str = None, split: str = None):
             for rater_id, lp in sorted(items, key=lambda x: x[0]):
                 seg_obj = sitk.ReadImage(lp)
                 seg_aligned = align_to_ref(img_ref, seg_obj, is_label=True)
+
+                # If the image is 3D but the aligned segmentation is 2D (or has only one slice),
+                # duplicate the label along Z to match the image depth. This preserves geometric
+                # information and avoids dropping labels.
+                try:
+                    ref_dim = img_ref.GetDimension()
+                    seg_dim = seg_aligned.GetDimension()
+                    if ref_dim == 3:
+                        ref_z = img_ref.GetSize()[2]
+                        if seg_dim == 2:
+                            arr2 = sitk.GetArrayFromImage(seg_aligned)  # [y, x]
+                            arr3 = np.repeat(arr2[np.newaxis, ...], ref_z, axis=0)  # [z, y, x]
+                            seg_aligned = sitk.GetImageFromArray(arr3)
+                            seg_aligned.CopyInformation(img_ref)
+                            print(f"[INFO] Duplicated 2D label {os.path.basename(lp)} to {ref_z} slices")
+                        else:
+                            # seg_dim == 3
+                            seg_z = seg_aligned.GetSize()[2]
+                            if seg_z == 1 and ref_z > 1:
+                                arr3 = sitk.GetArrayFromImage(seg_aligned)  # [1, y, x]
+                                arr3_rep = np.repeat(arr3, ref_z, axis=0)
+                                seg_aligned = sitk.GetImageFromArray(arr3_rep)
+                                seg_aligned.CopyInformation(img_ref)
+                                print(f"[INFO] Replicated single-slice label {os.path.basename(lp)} to {ref_z} slices")
+                except Exception as e:
+                    print(f"[WARN] Failed to duplicate/align label {lp}: {e}")
 
                 arr = sitk.GetArrayFromImage(seg_aligned)
                 uniq = np.unique(arr)
