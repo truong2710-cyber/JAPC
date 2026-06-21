@@ -109,8 +109,8 @@ Unless otherwise specified, all reported results can be reproduced using the cor
 ## Installation
 
 ```bash
-git clone https://github.com/truong2710-cyber/Personalized-FS.git
-cd Personalized-FS
+git clone https://github.com/truong2710-cyber/JAPC.git
+cd JAPC
 
 conda create -n japc python=3.9
 conda activate japc
