@@ -56,7 +56,7 @@ This repository contains implementations based on two different few-shot segment
 | Branch                       | Backbone                        |
 | ---------------------------- | ------------------------------- |
 | `main`                       | DSPNet-based implementation     |
-| `multi-rater-attn-ssl-alp-2` | SSL-ALPNet-based implementation |
+| `multi-rater-attn-ssl-alp` | SSL-ALPNet-based implementation |
 
 To switch between implementations:
 
@@ -65,7 +65,7 @@ To switch between implementations:
 git checkout main
 
 # SSL-ALPNet version
-git checkout multi-rater-attn-ssl-alp-2
+git checkout multi-rater-attn-ssl-alp
 ```
 
 Unless otherwise specified, all reported results can be reproduced using the corresponding branch and pretrained checkpoints provided below.
